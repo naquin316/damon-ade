@@ -25,7 +25,7 @@ export const AGENT_LABELS: Record<AgentType, string> = {
 };
 
 export const AGENT_PRESET_COMMANDS: Record<AgentType, string[]> = {
-	claude: ["claude --dangerously-skip-permissions"],
+	claude: ["claude --model 'claude-opus-4-8[1m]' --dangerously-skip-permissions"],
 	codex: [
 		'codex --model gpt-5.5 -c model_reasoning_effort="high" --ask-for-approval never --sandbox danger-full-access -c model_reasoning_summary="detailed" -c model_supports_reasoning_summaries=true',
 	],
