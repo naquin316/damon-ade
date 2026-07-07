@@ -17,6 +17,7 @@ import {
 	PROTOCOL_SCHEME,
 } from "shared/constants";
 import { getWorkspaceName } from "shared/env.shared";
+import { beginAgentInit } from "./lib/agent-init";
 import { backfillAgentMemory } from "./lib/agent-memory-backfill";
 import { setupAgentHooks } from "./lib/agent-setup";
 import { SUPERSET_HOME_DIR } from "./lib/app-environment";
@@ -31,6 +32,7 @@ import {
 	ensureWorkspaceIconsDir,
 	getIconPath,
 } from "./lib/project-icons";
+import { seedDefaultCockpit } from "./lib/seed-cockpit";
 import {
 	prewarmTerminalRuntime,
 	reconcileDaemonSessions,
@@ -296,6 +298,21 @@ if (!gotTheLock) {
 			setupAgentHooks();
 		} catch (error) {
 			console.error("[main] Failed to set up agent hooks:", error);
+		}
+
+		// First-run seed: populate Ryan's default teams/agents while the DB is
+		// ready but the window (and its onboarding-redirect gate) is not up yet.
+		// Idempotent — a no-op on every launch after the first.
+		try {
+			const seeded = seedDefaultCockpit();
+			for (const { agentId, ctx } of seeded) {
+				beginAgentInit(agentId, ctx);
+			}
+			if (seeded.length > 0) {
+				console.log(`[main] boot: seeded cockpit (${seeded.length} agents)`);
+			}
+		} catch (error) {
+			console.error("[main] Cockpit seed failed:", error);
 		}
 
 		console.log("[main] boot: makeAppSetup (create window)…");
