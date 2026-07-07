@@ -67,9 +67,6 @@ examples
 # Claude binaries - downloaded at build time
 apps/desktop/resources/bin/
 
-# Streams data
-apps/streams/data/
-
 # Wrangler
 .wrangler
 .dev.vars
