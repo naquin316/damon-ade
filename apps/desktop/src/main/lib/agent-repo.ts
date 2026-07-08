@@ -55,6 +55,9 @@ export async function setupAgentRepo({
 	// direct: the agent operates in-place in an existing non-git (or whole-tree)
 	// directory. No worktree/branch — just record the target as the cwd.
 	if (source.type === "direct") {
+		if (!existsSync(source.path)) {
+			throw new Error(`Direct agent path does not exist: ${source.path}`);
+		}
 		return { agentHome, worktreePath: source.path, memoryDir, branch: "" };
 	}
 

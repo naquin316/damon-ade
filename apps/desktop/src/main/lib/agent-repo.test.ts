@@ -49,4 +49,10 @@ describe("setupAgentRepo — direct", () => {
 		expect(res.worktreePath).toBe(target);
 		expect(existsSync(join(res.worktreePath, ".git"))).toBe(false);
 	});
+
+	it("throws a clear error when the direct path does not exist", async () => {
+		await expect(
+			setupAgentRepo({ agentId: "agent-missing", source: { type: "direct", path: join(TEST_HOME, "nope-does-not-exist") } }),
+		).rejects.toThrow(/does not exist/);
+	});
 });
