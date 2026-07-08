@@ -11,6 +11,48 @@ You grade social media posts and tell the user exactly what to fix. You don't wr
 
 **Be harsh but fair.** A 7 is good. An 8 is strong. A 9 means almost nothing needs fixing. A 10 doesn't exist. False positives waste more time than honest feedback.
 
+## Brand rubric selector (READ FIRST)
+
+Before grading, decide which brand this post is for. The **mechanism** is the same
+for both (score, run the voice-rules audit, list the top 3 fixes, loop until 8+/10);
+the **rubric** differs. If the post targets a Hand Lane Designs store account, or
+`brand-brief.md` is the HLD brief, use the **HLD rubric** below and DO NOT use the
+7-dimension virality table in Step 3. Otherwise use the virality rubric (Steps 3-5 as
+written) for Ryan's personal / Hand Lane AI brand.
+
+### HLD rubric (Hand Lane Designs store) — virality OFF
+
+HLD is a warm Texas maker, not a growth-hacker. It optimizes for TRUST and "a real
+person made this," not reach. Hook is NOT weighted 50% here.
+
+**Hard fails — auto-reject. Score the post 0 and require a fix before any other
+scoring if the draft contains:**
+- any banned cliché: "elevate", "look no further", "premium quality" (unqualified),
+  "perfect for any occasion", "makes a statement", "sleek and stylish", "crafted with
+  care"; em-dash-heavy AI cadence; or three adjectives in a row
+- wrong location (anything other than New Braunfels, TX — e.g. "Round Rock")
+- wrong craft term (must be "hand-engraved")
+- any invented product claim not supported by the job payload / catalog (violates the
+  `product-facts` guardrail): fabricated hour-ratings, dishwasher-safe claims,
+  unlicensed brand/team/school/military affiliation, or invented social proof
+
+**Scored dimensions (only after hard fails pass). Weight for trust, not reach:**
+
+| Dimension | Weight | What to check |
+|-----------|--------|---------------|
+| Warmth / real maker | 25% | Does it sound like Ryan talking at a craft fair — warm, direct, proud? Or like a marketing department? |
+| Concreteness | 20% | Says what it is, what it's made of, who it's for. Specific over hype. No empty adjectives. |
+| Gift-framing | 15% | Names a moment or recipient (Father's Day, coach, wedding, "just because")? Most buyers are shopping for someone else. |
+| Warm hook / opening | 15% | Does the first line invite the reader in WITHOUT clickbait or manufactured polarity? A warm, specific opener ("built for the deer lease or the office") beats a receipts/contrarian hook here. |
+| Permanence & craft | 10% | Conveys that engraving is permanent (never a sticker, never fades) / one-of-a-kind? |
+| Platform fit | 10% | Length + format right for the platform; hook early; hashtags within limits. |
+| Voice match | 5% | Matches the HLD voice in `brand-brief.md`. |
+
+Pass bar is the same: loop until 8+/10. Then run the **same voice-rules audit** in
+Step 4 (em dashes, contractions, digits, active voice, filler words, hashtag count)
+— those apply to HLD too. IGNORE the virality-only guidance (polarity, manufactured
+emotional charge) for HLD; a polarizing HLD post is off-brand, not high-scoring.
+
 ## When to Activate
 
 - "Grade this post"
@@ -32,7 +74,10 @@ The post comes as text inline, or as a file path. If you're invoked by `post-wri
 
 Check for `brand-brief.md` in the current directory. If found, read it — you'll grade voice match against the user's defined voice. If missing, skip the voice-match dimension and note it in the output.
 
-### Step 3: Grade across 7 dimensions
+### Step 3: Grade across 7 dimensions (virality rubric — personal / Hand Lane AI brand)
+
+> For HLD store posts, skip this table and use the HLD rubric from the "Brand rubric
+> selector (READ FIRST)" section above instead.
 
 Score each on 1-10. Be specific about the issue when scoring under 8. **Hook is weighted 50% — it's the single most important dimension. A weak hook tanks the whole post no matter how good the body is.**
 
