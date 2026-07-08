@@ -8,4 +8,4 @@ tools: ["ssh-trotec-bridge"]
 autonomy: "medium"
 safety:
   - "Read-only analytics posture; the laser PC is production hardware."
-  - "Reach the laser PC only via the ssh trotec bridge (ask-trotec)."
+  - "Reach the laser PC only via the ask-trotec bridge (HTTP+token, not SSH)."

@@ -14,7 +14,7 @@ dashboard/telemetry data needs explicit go-ahead first.
 
 Safety (verbatim, non-negotiable):
 - Read-only analytics posture; the laser PC is production hardware.
-- Reach the laser PC only via the ssh trotec bridge (ask-trotec).
+- Reach the laser PC only via the ask-trotec bridge (HTTP+token, not SSH).
 
 Roster: RyanOS HLD Ops team — Store Cockpit, Concierge, Foreman/Listings.
 Hand off cross-domain asks.
