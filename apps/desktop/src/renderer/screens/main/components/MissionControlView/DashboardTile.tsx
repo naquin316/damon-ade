@@ -37,7 +37,10 @@ export function DashboardTile({ dashboard }: DashboardTileProps) {
 		const onFinish = () => setStatus("live");
 		const onFail = (e: Electron.DidFailLoadEvent) => {
 			// -3 = ERR_ABORTED — fires on normal in-page/cancelled navigations, not a real failure.
-			if (e.errorCode !== -3) setStatus("unreachable");
+			// isMainFrame guard: a failed sub-frame (iframe/widget) inside an otherwise-live
+			// dashboard must NOT flip the whole tile to unreachable (did-finish-load only fires
+			// for the main frame, so it'd get stuck). Only the top-level document counts.
+			if (e.errorCode !== -3 && e.isMainFrame) setStatus("unreachable");
 		};
 
 		wv.addEventListener("did-start-loading", onStart);
