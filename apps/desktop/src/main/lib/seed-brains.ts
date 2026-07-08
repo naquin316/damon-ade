@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { app } from "electron";
 
 /**
- * Agent display name → seed-brain slug. ONLY the 9 sourced agents appear here.
+ * Agent display name → seed-brain slug. ONLY the 10 sourced agents appear here.
  * Consulting + SaaS Build (greenfield) are deliberately absent → no authored
  * brain → the scaffold falls back to the generic template. Keep in sync with
  * seed-cockpit.ts agent names and assets/seed-brains/<slug>/.
@@ -18,6 +18,7 @@ export const AGENT_BRAIN_SLUGS: Record<string, string> = {
 	"Kalshi BTC / Tessa": "kalshi-tessa",
 	"Daily Planner": "daily-planner",
 	"Code HQ / Portfolio": "codehq-portfolio",
+	"SM Manager": "sm-manager",
 };
 
 export function slugForAgent(agentName: string): string | undefined {

@@ -44,8 +44,8 @@ describe("seed-brains", () => {
 		expect(getAuthoredBrainDir("Shopify / Store Cockpit")).toBe(brainDir);
 	});
 
-	it("has no slug entries for deferred agents (only the 9 sourced)", () => {
-		expect(Object.keys(AGENT_BRAIN_SLUGS)).toHaveLength(9);
+	it("has no slug entries for deferred agents (only the 10 sourced)", () => {
+		expect(Object.keys(AGENT_BRAIN_SLUGS)).toHaveLength(10);
 	});
 
 	it("dev fallback (no override) resolves to repo-root assets, not apps/desktop's own assets", () => {

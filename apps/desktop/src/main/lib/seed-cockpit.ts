@@ -47,7 +47,7 @@ function vaultRoot(): string {
 	);
 }
 
-/** Ryan's default cockpit: five teams and their agents. All Claude runtime. */
+/** Ryan's default cockpit: six teams and their agents. All Claude runtime. */
 function buildSeedTeams(): SeedTeamSpec[] {
 	const CODE = (r: string) => join(codeRoot(), r);
 	const VAULT = vaultRoot();
@@ -110,6 +110,13 @@ function buildSeedTeams(): SeedTeamSpec[] {
 					name: "Code HQ / Portfolio",
 					source: { type: "linked-worktree", repoPath: CODE(".codehq"), branch: "ade/codehq" },
 				},
+			],
+		},
+		{
+			name: "Social Media",
+			color: "#DB2777",
+			agents: [
+				{ name: "SM Manager", source: { type: "direct", path: VAULT } },
 			],
 		},
 	];

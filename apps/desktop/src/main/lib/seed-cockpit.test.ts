@@ -93,12 +93,12 @@ describe("seedDefaultCockpit", () => {
 	// (idempotent), so subsequent tests read from this instead of re-seeding.
 	let firstSeed: ReturnType<typeof seedDefaultCockpit>;
 
-	it("seeds 5 teams and 11 agents into an empty DB", () => {
+	it("seeds 6 teams and 12 agents into an empty DB", () => {
 		firstSeed = seedDefaultCockpit();
-		expect(firstSeed.length).toBe(11);
-		expect(localDb.select().from(projects).all().length).toBe(5);
-		expect(localDb.select().from(workspaces).all().length).toBe(11);
-		expect(localDb.select().from(worktrees).all().length).toBe(11);
+		expect(firstSeed.length).toBe(12);
+		expect(localDb.select().from(projects).all().length).toBe(6);
+		expect(localDb.select().from(workspaces).all().length).toBe(12);
+		expect(localDb.select().from(worktrees).all().length).toBe(12);
 	});
 
 	it("gives every seeded agent the claude runtime and a worktree", () => {
@@ -135,7 +135,7 @@ describe("seedDefaultCockpit", () => {
 	it("is idempotent — re-seeding a populated DB is a no-op", () => {
 		const again = seedDefaultCockpit();
 		expect(again.length).toBe(0);
-		expect(localDb.select().from(projects).all().length).toBe(5);
-		expect(localDb.select().from(workspaces).all().length).toBe(11);
+		expect(localDb.select().from(projects).all().length).toBe(6);
+		expect(localDb.select().from(workspaces).all().length).toBe(12);
 	});
 });
