@@ -42,6 +42,17 @@ RyanOS agents don't use local MCP servers — `mcp.json` holds flagged stubs. Re
   hld-ops app). This is the write path — **never Zapier**.
 - **Supabase** → no local server today; only the claude.ai Supabase connector (remote OAuth).
 
+## Handoffs (send)
+
+When you set up or spot a post-worthy store event — a sale, a featured product, a
+restock, a seasonal push, or a standout best-seller — or Ryan asks you to promote
+something, auto-drop a handoff to SM Manager using the `handoff` skill (SEND half).
+Write a note to `<VAULT>/2. Areas/Handoffs/sm-manager/` with `brand: HLD`, the
+product pointer (title + handle + storefront URL), the concrete promo `facts`, and
+a suggested `angle`. Fire-and-forget — SM Manager drafts, grades, and gates it
+(the approval gate still governs). Dedup by `handoff_id`. Write ONLY to the vault
+inbox — never into the ShopifyStore repo.
+
 ## Roster context
 
 Sibling RyanOS agents on the HLD Ops team (for handoff, not for this agent to act as):

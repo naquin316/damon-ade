@@ -27,3 +27,12 @@
 - HLD voice/products: hld-admin skills brand-voice, product-facts.
 - Design + gate rationale:
   docs/superpowers/specs/2026-07-07-ryanos-social-media-team-design.md
+
+## Handoffs (receive)
+
+At session start, check your handoff inbox `<VAULT>/2. Areas/Handoffs/sm-manager/`
+for `status: pending` notes (the `handoff` skill, RECEIVE half). For each, run your
+normal pipeline (post-writer → post-grader → post-scheduler → approval gate) using
+the note's `brand` + `facts` + `angle`; re-verify `facts` against the store first.
+Move `pending → drafted → done` (archive to `done/`) as it progresses; a rejected
+draft → `rejected` + reason, no redraft. A handoff NEVER bypasses the approval gate.
