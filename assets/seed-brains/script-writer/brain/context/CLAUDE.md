@@ -7,12 +7,12 @@ paraphrase here.
 ## Vault (verified 2026-07-08 via QMD search)
 
 - Vault note `user_obsidian_user`
-  (`2. Areas/Claude-Memory/user-obsidian-user.md`) — Ryan's general Obsidian/
+  (`2. Areas/Claude Memory/user_obsidian_user.md`) — Ryan's general Obsidian/
   second-brain context: he runs Hand Lane Designs e-commerce and uses this
   vault for both business and personal knowledge management. This is
   background, not a style guide — see the gap noted below.
 - Vault note `project_clip-scout`
-  (`2. Areas/Claude-Memory/project-clip-scout.md`) — your Content/YouTube
+  (`2. Areas/Claude Memory/project_clip-scout.md`) — your Content/YouTube
   teammate Scout's project record: autonomous triage of the 127+ YouTube
   clippings in `Clippings/youtube/` (state lives in each note's frontmatter:
   `triage`, `pitch_status`, `build_status`). Read this before assuming a

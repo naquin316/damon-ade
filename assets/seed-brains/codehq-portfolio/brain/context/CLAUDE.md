@@ -7,7 +7,7 @@ stale paraphrase here.
 ## Vault (verified via QMD, 2026-07-08)
 
 - Vault note `project_codehq-dashboard`
-  (`2-Areas/Claude-Memory/project-codehq-dashboard.md`) — Code HQ project
+  (`2. Areas/Claude Memory/project_codehq-dashboard.md`) — Code HQ project
   history: the scanner/dashboard build (2026-07-03) and the semantic
   layer + nightly self-healing audit (2026-07-07); what it outputs, the
   commands, the skills it seeded, and the launchd/iCloud TCC gotcha to

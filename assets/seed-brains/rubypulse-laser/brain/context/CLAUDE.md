@@ -19,11 +19,11 @@ paraphrase here.
 ## Vault (verified 2026-07-08 via QMD search)
 
 - Vault note `project_rubypulse`
-  (`2. Areas/Claude-Memory/project-rubypulse.md`) — project history: build
+  (`2. Areas/Claude Memory/project_rubypulse.md`) — project history: build
   date, architecture summary, related notes
   (`reference_trotec-ruby-internals`, `project_trotec-bridge`).
 - Vault note `reference_trotec-ruby-internals`
-  (`2. Areas/Claude-Memory/reference-trotec-ruby-internals.md`) — the Ruby
+  (`2. Areas/Claude Memory/reference_trotec-ruby-internals.md`) — the Ruby
   laser software's own internals (local .NET + MongoDB + Angular stack):
   ports, Mongo details, Hot API, home-screen image path. Load this before
   reasoning about anything upstream of RubyPulse's own contract file.

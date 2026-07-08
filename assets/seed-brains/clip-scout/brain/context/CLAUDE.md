@@ -40,7 +40,7 @@ Direct-mode agent — cwd IS the vault
 ## Vault memory (verified 2026-07-08 via QMD)
 
 - Vault note `project_clip-scout`
-  (`2. Areas/Claude Memory/project-clip-scout.md`) — build history
+  (`2. Areas/Claude Memory/project_clip-scout.md`) — build history
   (2026-07-07), the shadow-vault path gotcha Roux hit and fixed (always
   verify Hermes vault writes land in the iCloud path, not
   `~/Documents/Obsidian/RLOS_2026`), and that approval-reply routing is

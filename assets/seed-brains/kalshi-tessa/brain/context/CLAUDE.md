@@ -28,7 +28,7 @@ paraphrase here.
 ## Vault (verified 2026-07-08 via QMD search)
 
 - Vault note `project_kalshi-btc-lab`
-  (`2. Areas/Claude-Memory/project-kalshi-btc-lab.md`) — project history:
+  (`2. Areas/Claude Memory/project_kalshi-btc-lab.md`) — project history:
   replaced the rejected `Novals83/5min-btc-polymarket` bot, phase/gate
   structure, Hermes cron wiring for the collector tick, why the Polymarket
   bot was killed (hidden execution engine, no real strategy, US-prohibited

@@ -60,5 +60,5 @@ braynee `daily-planner` agent file — is Ryan's personal vault ritual, not
 customer- or brand-facing content, so no HLD brand-facts rule was folded
 into the Contract. If Daily Planner is ever asked to draft anything
 customer-facing, check `hld-brand-facts` (vault note
-`2. Areas/Claude-Memory/user-hld-brand-facts.md`) first — that's out of this
+`2. Areas/Claude Memory/user_hld-brand-facts.md`) first — that's out of this
 agent's normal scope, called out here only for completeness.

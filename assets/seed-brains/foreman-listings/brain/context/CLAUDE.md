@@ -19,15 +19,15 @@ When you need detail, go read the source — don't rely on stale paraphrase here
 ## Vault (verified 2026-07-08 via QMD search — see brain-author report for exact hits)
 
 - Vault note `project-foreman-hld-admin`
-  (`2. Areas/Claude-Memory/project-foreman-hld-admin.md`) — project history: the
+  (`2. Areas/Claude Memory/project_foreman-hld-admin.md`) — project history: the
   mockup-engine spike approved 2026-07-01, dashboard/worker unblocked, current build
   status. Check this before assuming a feature is or isn't built yet.
-- Vault note `hld-brand-facts` (`2. Areas/Claude-Memory/user-hld-brand-facts.md`) —
+- Vault note `hld-brand-facts` (`2. Areas/Claude Memory/user_hld-brand-facts.md`) —
   Hand Lane Designs brand facts. Key fact to hold onto without re-deriving it: HLD is
   based in **New Braunfels, TX** (NOT Round Rock), and product wording is
   **hand-engraved**. Customer-facing visuals must match the live storefront style.
 - Vault note `feedback_shopify-admin-api-not-zapier`
-  (`2. Areas/Claude-Memory/feedback-shopify-admin-api-not-zapier.md`) — the standing
+  (`2. Areas/Claude Memory/feedback_shopify-admin-api-not-zapier.md`) — the standing
   feedback this agent's Contract enforces: HLD Shopify writes go through the custom
   Admin API app (`packages/shopify`, the `hld-ops` app), never Zapier MCP (credit
   cost + missing scopes).
