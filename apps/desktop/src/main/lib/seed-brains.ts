@@ -28,20 +28,23 @@ export function slugForAgent(agentName: string): string | undefined {
  * Root of the committed seed-brain assets. Order:
  *   1. ADE_SEED_BRAINS_ROOT (tests + explicit override)
  *   2. packaged app resources (<resourcesPath>/assets/seed-brains) when packaged
- *   3. repo-relative assets/seed-brains (dev: `bun run dev` from source)
- * `app` may be undefined in a non-Electron unit-test context; guard for it.
+ *   3. repo-root assets/seed-brains (dev: `bun run dev` from source)
+ * `app` may be undefined in a non-Electron unit-test context; optional
+ * chaining already guards every access, so no try/catch is needed.
  */
 export function resolveSeedBrainsRoot(): string {
 	const override = process.env.ADE_SEED_BRAINS_ROOT;
 	if (override) return override;
-	try {
-		if (app?.isPackaged)
-			return join(process.resourcesPath, "assets", "seed-brains");
-		if (app?.getAppPath) return join(app.getAppPath(), "assets", "seed-brains");
-	} catch {
-		/* not in an Electron context — fall through to repo-relative */
+	if (app?.isPackaged)
+		return join(process.resourcesPath, "assets", "seed-brains");
+	if (app?.getAppPath) {
+		// app.getAppPath() resolves to apps/desktop (not the monorepo root) —
+		// same convention local-db/index.ts relies on for its drizzle path
+		// (`join(app.getAppPath(), "../../packages/local-db/drizzle")`). Ascend
+		// two levels to reach the repo root, where assets/ actually lives.
+		return join(app.getAppPath(), "..", "..", "assets", "seed-brains");
 	}
-	// Dev fallback: this file is apps/desktop/src/main/lib/seed-brains.ts →
+	// Non-Electron fallback: this file is apps/desktop/src/main/lib/seed-brains.ts →
 	// repo root is five levels up; assets/ lives at the repo root.
 	return join(__dirname, "..", "..", "..", "..", "..", "assets", "seed-brains");
 }
