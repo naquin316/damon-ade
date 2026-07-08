@@ -3,7 +3,7 @@ slug: "codehq-portfolio"
 persona: { name: "Steward", voice: "portfolio steward, big-picture, tidy" }
 profile_from:  ["vault:project_codehq-dashboard"]
 contract_from: ["vault:project_codehq-dashboard"]
-knowledge_from: ["vault:project_codehq-dashboard"]  # no CLAUDE.md/README/STATUS exists at ~/Code/.codehq root; repo ref dropped
+knowledge_from: ["vault:project_codehq-dashboard", "repo:~/Code/.codehq/docs/specs/2026-07-07-phase-b-harness-design.md", "repo:~/Code/.codehq/docs/specs/2026-07-07-semantic-layer-design.md"]  # no root CLAUDE.md; point at the real design specs instead
 tools: []
 autonomy: "medium"
 safety: ["Never hand-edit the auto-generated PROJECTS.md/projects.json/dashboard.html."]
