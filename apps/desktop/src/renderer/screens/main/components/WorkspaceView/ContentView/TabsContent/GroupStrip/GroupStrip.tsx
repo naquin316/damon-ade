@@ -154,15 +154,21 @@ export function GroupStrip() {
 	// a plain shell when the workspace has no runtime).
 	const handleAddGroup = () => {
 		if (!activeWorkspaceId) return;
-		const result = spawnAgentSession({
+		spawnAgentSession({
 			id: activeWorkspaceId,
 			runtime: workspace?.runtime ?? null,
 			worktreePath: workspace?.worktreePath ?? null,
-		});
-		if (result) {
-			const tab = useTabsStore.getState().tabs.find((t) => t.id === result.tabId);
-			if (tab) logSession(tab.name || "Terminal", "created");
-		}
+		})
+			.then((result) => {
+				if (!result) return;
+				const tab = useTabsStore
+					.getState()
+					.tabs.find((t) => t.id === result.tabId);
+				if (tab) logSession(tab.name || "Terminal", "created");
+			})
+			.catch((error) => {
+				console.error("[GroupStrip] Failed to spawn agent session:", error);
+			});
 	};
 
 	// Explicit plain-shell tab, independent of the agent runtime.

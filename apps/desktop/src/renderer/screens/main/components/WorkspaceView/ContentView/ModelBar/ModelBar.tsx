@@ -63,6 +63,8 @@ export function ModelBar() {
 			id: workspaceId,
 			runtime: model.runtime,
 			worktreePath,
+		}).catch((error) => {
+			console.error("[ModelBar] Failed to spawn agent session:", error);
 		});
 	};
 

@@ -199,7 +199,9 @@ function WorkspacePage() {
 		if (tabs.length > 0) return;
 		if (autoSpawnedRef.current.has(workspaceId)) return;
 		autoSpawnedRef.current.add(workspaceId);
-		spawnSession();
+		spawnSession().catch((error) => {
+			console.error("[WorkspacePage] Failed to auto-spawn agent session:", error);
+		});
 	}, [tabsHydrated, workspace, showInitView, tabs.length, workspaceId, spawnSession]);
 
 	const { presets } = usePresets();
@@ -218,7 +220,16 @@ function WorkspacePage() {
 
 	// "New session" defaults to spawning the agent's runtime CLI in a new tab
 	// (falls back to a plain shell when the workspace has no runtime).
-	useAppHotkey("NEW_GROUP", () => spawnSession(), undefined, [spawnSession]);
+	useAppHotkey(
+		"NEW_GROUP",
+		() => {
+			spawnSession().catch((error) => {
+				console.error("[WorkspacePage] Failed to spawn agent session:", error);
+			});
+		},
+		undefined,
+		[spawnSession],
+	);
 	useAppHotkey(
 		"REOPEN_TAB",
 		() => {

@@ -9,6 +9,7 @@ import {
 	getAgentMemoryDir,
 	getAgentWorktreePath,
 } from "main/lib/agent-home";
+import { buildAgentLaunchCommand } from "main/lib/agent-launch";
 import { MEMORY_SCAFFOLD_ENABLED } from "main/lib/feature-flags";
 import { localDb } from "main/lib/local-db";
 import { z } from "zod";
@@ -221,6 +222,36 @@ export const createQueryProcedures = () => {
 						: null,
 				};
 			}),
+
+		/**
+			 * Resolves an Agent's runtime launch (cwd + commands) for the renderer.
+			 * The brain paths (settings/persona/context/mcp for Claude) are
+			 * main-process paths derived from the agent id — see agent-launch.ts —
+			 * so the renderer cannot build this itself.
+			 */
+			getAgentLaunch: publicProcedure
+				.input(z.object({ id: z.string() }))
+				.query(({ input }) => {
+					const ws = localDb
+						.select()
+						.from(workspaces)
+						.where(eq(workspaces.id, input.id))
+						.get();
+					if (!ws?.runtime) {
+						throw new Error(`Agent ${input.id} has no runtime`);
+					}
+					const worktree = ws.worktreeId
+						? localDb
+								.select()
+								.from(worktrees)
+								.where(eq(worktrees.id, ws.worktreeId))
+								.get()
+						: null;
+					return {
+						cwd: worktree?.path ?? getAgentWorktreePath(input.id),
+						commands: buildAgentLaunchCommand(input.id, ws.runtime),
+					};
+				}),
 
 		getAll: publicProcedure.query(() => {
 			return localDb
