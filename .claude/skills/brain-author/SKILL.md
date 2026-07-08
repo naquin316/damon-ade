@@ -1,6 +1,6 @@
 ---
 name: brain-author
-description: Author a RyanOS superagent brain from a seed-brain manifest.
+description: Author a RyanOS superagent brain from its manifest.
 version: 0.1.0
 platforms: [macos]
 metadata:
@@ -28,6 +28,7 @@ touch MEMORY.md or learned skills — re-authoring is always memory-safe.
    - Each `vault:<slug>` → QMD `search`/`query`; VERIFY it exists. A dead ref is dropped and noted (never cite a note that isn't there).
    - Each `repo:<path>` → Read the file (CLAUDE.md / STATUS.md).
    - Each `hermes:<name>` → locate the profile (search `~/Code` and the vault via QMD for "Hermes <name> profile"); if absent, note it and proceed honestly.
+   - Each `feedback:<slug>` (and `brand rules`) → fold into the Contract as verbatim always/never rules (see references/manifest-schema.md's ref-resolution table).
 3. Draft the four artifacts into `assets/seed-brains/<slug>/brain/`:
    - `persona.txt` — Profile+Contract, < ~1,000 chars, distinct voice, autonomy + verbatim safety lines, roster awareness. Overflow domain detail to context.
    - `context/CLAUDE.md` — Knowledge as POINTERS to the verified sources. No copied prose. No cross-dir @-imports.
