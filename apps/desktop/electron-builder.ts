@@ -80,6 +80,14 @@ const config: Configuration = {
 			to: "resources/migrations",
 			filter: ["**/*"],
 		},
+		// Authored agent seed-brains (repo-root assets/seed-brains/<slug>/brain/).
+		// resolveSeedBrainsRoot() reads join(process.resourcesPath, "assets",
+		// "seed-brains") when packaged — see src/main/lib/seed-brains.ts.
+		{
+			from: "../../assets/seed-brains",
+			to: "assets/seed-brains",
+			filter: ["**/*"],
+		},
 	],
 
 	files: [
