@@ -1,0 +1,2 @@
+# Placeholder so electron-builder's extraResources `from: assets/seed-brains` path always resolves.
+# Real brains land in <slug>/brain/ (Phase 2B-2 Tasks 5–8).
