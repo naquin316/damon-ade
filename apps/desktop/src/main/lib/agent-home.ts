@@ -43,3 +43,28 @@ export function getAgentMemoryDir(agentId: string): string {
 export function getAgentCodexHome(agentId: string): string {
 	return join(getAgentHome(agentId), ".codex");
 }
+
+/** External brain: the dir loaded via `--add-dir` (holds context/CLAUDE.md). */
+export function getAgentContextDir(agentId: string): string {
+	return join(getAgentHome(agentId), "context");
+}
+
+/** External brain: short identity injected via `--append-system-prompt-file`. */
+export function getAgentPersonaPath(agentId: string): string {
+	return join(getAgentHome(agentId), "persona.txt");
+}
+
+/** External brain: settings passed via `--settings` (autoMemoryDirectory + hooks). */
+export function getAgentSettingsPath(agentId: string): string {
+	return join(getAgentHome(agentId), "settings.json");
+}
+
+/** External brain: curated MCP servers passed via `--mcp-config`. */
+export function getAgentMcpPath(agentId: string): string {
+	return join(getAgentHome(agentId), "mcp.json");
+}
+
+/** External brain: per-agent skills (symlinked into the worktree's .claude/skills). */
+export function getAgentSkillsDir(agentId: string): string {
+	return join(getAgentHome(agentId), "skills");
+}
