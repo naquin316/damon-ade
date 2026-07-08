@@ -1,6 +1,6 @@
 ---
 name: brand-brief
-description: Capture or update a small business owner's brand brief — what they sell, who buys, the action they want readers to take, recent stories, and voice. Saves to brand-brief.md so other content skills can reference it. Triggers on "set up my brand," "update my business info," "save my brand voice," or when other skills need brand context and the file is missing.
+description: Capture a small business brand brief to a file
 allowed-tools: Read, Write, Edit, Glob, AskUserQuestion
 ---
 

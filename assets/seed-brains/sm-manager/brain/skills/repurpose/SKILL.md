@@ -1,6 +1,6 @@
 ---
 name: repurpose
-description: Turns one long-form input (blog post, newsletter, YouTube transcript, or script) into 3 platform-native LinkedIn posts, 5 X/Twitter threads, and 2 short-form video scripts for Reels/TikTok. Extracts the core themes first, opens every output with a tested hook from the viral-hooks library, sizes each to its platform, and runs post-grader before returning. Triggers on "repurpose this," "turn this into posts," "break this into content," or any paste of long content with a request for multiple posts.
+description: Turn one long-form piece into many posts
 argument-hint: "[paste long-form content] [optional: platforms to prioritize]"
 allowed-tools: Read, Write, Edit, Glob, AskUserQuestion
 ---

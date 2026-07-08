@@ -1,6 +1,6 @@
 ---
 name: viral-hooks
-description: A curated library of 100 proven viral hook frameworks across 13 categories (Receipts, Contrarian, Negative Frame, Stolen Lessons, Curiosity Gap, and more). Picks the strongest hook pattern for a given topic and platform, fills it in, generates 3 variations, and runs the first-3-words test. Triggers on "give me a hook for X," "write hook options," "my intro is boring," or any request for an opening line. Auto-invoked by post-writer and repurpose to open every draft with a tested hook instead of a generic AI intro.
+description: Pick a proven viral hook for a topic
 argument-hint: "[topic] [platform]"
 allowed-tools: Read, Write, Edit, Glob, AskUserQuestion
 ---

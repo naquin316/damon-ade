@@ -1,6 +1,6 @@
 ---
 name: post-writer
-description: Write a complete social media post (hook + body + CTA) from a topic or idea, sized for the target platform. Reads brand-brief.md for voice and audience context, applies proven hook patterns, and auto-runs post-grader as a final quality pass before returning the post. Triggers on "write me a post about X," "draft a [platform] post," or any specific writing request with a topic.
+description: Write a platform-sized post from a topic
 argument-hint: "[topic or idea] [platform]"
 allowed-tools: Read, Write, Edit, Glob, AskUserQuestion
 ---

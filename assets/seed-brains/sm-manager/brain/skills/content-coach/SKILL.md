@@ -1,6 +1,6 @@
 ---
 name: content-coach
-description: Guides a beginner marketer end-to-end from "I don't know what to post" to a scheduled social post. Auto-runs brand-brief, idea brainstorm, post-writer, and post-grader in one conversation. Triggers on broad asks like "help me post something," "I want to start posting," "write me a post but I don't know what about," or any vague content request.
+description: Guide a beginner from idea to a scheduled post
 allowed-tools: Read, Write, Edit, Glob, AskUserQuestion, Task
 ---
 

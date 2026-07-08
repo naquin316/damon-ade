@@ -1,6 +1,6 @@
 ---
 name: brand-brief-hld
-description: Hand Lane Designs store brand brief — voice, customer, wedge, facts, and hard rules for every HLD store post. Use for any Hand Lane Designs STORE content, or when post-writer/post-grader need HLD brand context. Not for Ryan's personal / Hand Lane AI brand.
+description: HLD store brand brief: voice, facts, hard rules
 allowed-tools: Read, Write, Edit, Glob
 ---
 

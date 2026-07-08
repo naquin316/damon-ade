@@ -1,6 +1,6 @@
 ---
 name: post-grader
-description: Grade a social media post for VIRALITY. Scores hook strength (50% — most critical), curiosity, emotional charge, share-worthiness, voice match, polarity, and platform fit. Returns a score out of 10, a scorecard, and the top 3 fixes ranked by impact. Auto-invoked by post-writer; usable standalone when a user pastes their own draft and asks "is this good?" or "grade this post."
+description: Grade a social post (virality or HLD rubric)
 argument-hint: "[post text or path] [platform]"
 allowed-tools: Read, Glob, AskUserQuestion
 ---
