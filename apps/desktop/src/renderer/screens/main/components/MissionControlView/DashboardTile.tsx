@@ -28,19 +28,34 @@ export function DashboardTile({ dashboard }: DashboardTileProps) {
 	const [status, setStatus] = useState<Status>("loading");
 	// Bumped on Retry to remount the <webview> and force a fresh load.
 	const [nonce, setNonce] = useState(0);
+	// Tracks whether the current load already failed. When a main-frame load
+	// fails (e.g. connection refused), Chromium then renders its own error page,
+	// which fires did-finish-load — without this guard, onFinish would overwrite
+	// "unreachable" back to "live" and the tile would show blank-but-green
+	// instead of the Retry overlay. Reset at the start of each load.
+	const failedRef = useRef(false);
 
 	useEffect(() => {
 		const wv = ref.current;
 		if (!wv) return;
 
-		const onStart = () => setStatus("loading");
-		const onFinish = () => setStatus("live");
+		const onStart = () => {
+			failedRef.current = false;
+			setStatus("loading");
+		};
+		const onFinish = () => {
+			// Don't let the error-page load flip a failed tile back to "live".
+			if (!failedRef.current) setStatus("live");
+		};
 		const onFail = (e: Electron.DidFailLoadEvent) => {
 			// -3 = ERR_ABORTED — fires on normal in-page/cancelled navigations, not a real failure.
 			// isMainFrame guard: a failed sub-frame (iframe/widget) inside an otherwise-live
 			// dashboard must NOT flip the whole tile to unreachable (did-finish-load only fires
 			// for the main frame, so it'd get stuck). Only the top-level document counts.
-			if (e.errorCode !== -3 && e.isMainFrame) setStatus("unreachable");
+			if (e.errorCode !== -3 && e.isMainFrame) {
+				failedRef.current = true;
+				setStatus("unreachable");
+			}
 		};
 
 		wv.addEventListener("did-start-loading", onStart);
