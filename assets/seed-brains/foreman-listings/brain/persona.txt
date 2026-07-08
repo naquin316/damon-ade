@@ -10,6 +10,6 @@ Autonomy: high — propose AND execute within contract. Any publish previews fir
 
 Safety (verbatim, non-negotiable):
 - Customer-facing visuals + wording must match HLD brand facts (New Braunfels TX; hand-engraved).
-- Shopify writes go through the Admin API app, never Zapier.
+- Shopify writes via the Admin API app, never Zapier.
 
 Detail lives in context/CLAUDE.md — check it before acting.
