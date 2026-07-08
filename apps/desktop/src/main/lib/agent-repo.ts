@@ -9,12 +9,17 @@ import {
 
 /**
  * How an agent's repo is populated at creation time.
- * - init:  a fresh empty git repo (`git init` + empty initial commit)
- * - clone: clone a remote URL or a local path into the worktree
+ * - init:            a fresh empty git repo (`git init` + empty initial commit)
+ * - clone:           clone a remote URL or a local path into the worktree
+ * - linked-worktree: a branch-isolated `git worktree` off a REAL repo the user
+ *                     already has on disk
+ * - direct:          operate in-place inside an existing directory, no git
  */
 export type AgentRepoSource =
 	| { type: "init" }
-	| { type: "clone"; url: string };
+	| { type: "clone"; url: string }
+	| { type: "linked-worktree"; repoPath: string; branch: string }
+	| { type: "direct"; path: string };
 
 export interface AgentRepoResult {
 	agentHome: string;
@@ -46,6 +51,28 @@ export async function setupAgentRepo({
 	// Create the memory dir (this also creates <agent-home>). worktree/ is
 	// created below by init/clone.
 	mkdirSync(memoryDir, { recursive: true });
+
+	// direct: the agent operates in-place in an existing non-git (or whole-tree)
+	// directory. No worktree/branch — just record the target as the cwd.
+	if (source.type === "direct") {
+		return { agentHome, worktreePath: source.path, memoryDir, branch: "" };
+	}
+
+	// linked-worktree: a branch-isolated `git worktree` off the user's REAL repo.
+	// The agent gets a real checkout on its own branch under <agent-home>/worktree;
+	// changes reach the real main only when the user reviews & merges the branch.
+	if (source.type === "linked-worktree") {
+		if (existsSync(join(worktreePath, ".git"))) {
+			return { agentHome, worktreePath, memoryDir, branch: source.branch };
+		}
+		if (existsSync(worktreePath)) {
+			rmSync(worktreePath, { recursive: true, force: true });
+		}
+		const repo = simpleGit(source.repoPath);
+		// -B: create or reset the agent's branch; add the worktree at our path.
+		await repo.raw(["worktree", "add", "-B", source.branch, worktreePath]);
+		return { agentHome, worktreePath, memoryDir, branch: source.branch };
+	}
 
 	// Retry-safety: if a valid repo already exists (previous attempt got this
 	// far), reuse it. If a partial/non-repo dir exists, clear it so init/clone

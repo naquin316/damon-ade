@@ -22,6 +22,12 @@ export const createAgentInput = z.object({
 		.discriminatedUnion("type", [
 			z.object({ type: z.literal("init") }),
 			z.object({ type: z.literal("clone"), url: z.string().min(1) }),
+			z.object({
+				type: z.literal("linked-worktree"),
+				repoPath: z.string().min(1),
+				branch: z.string().min(1),
+			}),
+			z.object({ type: z.literal("direct"), path: z.string().min(1) }),
 		])
 		.default({ type: "init" }),
 });
