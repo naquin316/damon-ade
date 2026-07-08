@@ -135,6 +135,7 @@ async function runAgentInit(agentId: string): Promise<void> {
 				external:
 					ctx.source.type === "linked-worktree" ||
 					ctx.source.type === "direct",
+				directCwd: ctx.source.type === "direct",
 			});
 		}
 

@@ -633,6 +633,25 @@ describe("backfill on staged null-worktree agents (boot-hang regression)", () =>
 	});
 });
 
+describe("scaffoldAgentMemory — direct agent skills (2B-1)", () => {
+	it("does not write .claude/skills into a direct agent's cwd", async () => {
+		const { scaffoldAgentMemory } = await import("./agent-scaffold");
+		const { existsSync, mkdirSync, rmSync } = await import("node:fs");
+		const { homedir } = await import("node:os");
+		const { join } = await import("node:path");
+		const cwd = join(process.env.ADE_HOME_DIR as string, "fake-vault");
+		mkdirSync(cwd, { recursive: true });
+		scaffoldAgentMemory({ agentId: "agent-direct-skills", agentName: "Planner", runtime: "claude", userName: "Pat", worktreePath: cwd, external: true, directCwd: true });
+		expect(existsSync(join(cwd, ".claude", "skills"))).toBe(false); // vault root not polluted
+		// Cleanup: this test necessarily touches the REAL home dir (directCwd
+		// namespaces global skills under ~/.claude/skills), not TEST_HOME — remove
+		// the artifact so repeated local/CI runs don't accumulate stale symlinks.
+		rmSync(join(homedir(), ".claude", "skills", "ryanos-agent-direct-skills"), {
+			force: true,
+		});
+	});
+});
+
 describe("linked-worktree agent — real worktree with .git as a FILE (regression)", () => {
 	// Reproduces the CRITICAL Phase 2A Task 3 bug: a real `git worktree add`
 	// checkout has `.git` as a plain FILE (a `gitdir:` pointer), not a

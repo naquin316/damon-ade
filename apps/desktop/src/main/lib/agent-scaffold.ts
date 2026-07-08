@@ -7,6 +7,7 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { AgentRuntime } from "@superset/local-db";
 import {
@@ -70,6 +71,15 @@ export interface ScaffoldParams {
 	 * bridge (CLAUDE.md, .claude/settings.json, opencode.json).
 	 */
 	external?: boolean;
+	/**
+	 * True for `direct`-source agents (Daily Planner, Clip Scout, Script
+	 * Writer, ...) whose cwd is a shared REAL directory (e.g. the vault root),
+	 * not a dedicated worktree — so it must never be written into or have its
+	 * `.git` touched. Skills are namespaced instead under
+	 * ~/.claude/skills/ryanos-<agentId> so multiple direct agents sharing one
+	 * cwd don't collide on a single `.claude/skills` symlink.
+	 */
+	directCwd?: boolean;
 }
 
 function sub(
@@ -452,6 +462,7 @@ export function scaffoldAgentMemory({
 	role,
 	worktreePath: worktreePathOverride,
 	external,
+	directCwd,
 }: ScaffoldParams): void {
 	const agentHome = getAgentHome(agentId);
 	const memoryDir = getAgentMemoryDir(agentId);
@@ -534,17 +545,36 @@ export function scaffoldAgentMemory({
 	// never throws — so a failure resolving/writing it can never leave an
 	// UNPROTECTED symlink dropped into a real repo the user didn't ask to have
 	// modified.
-	const skillsMarker = "# ADE agent skills symlink (generated, not committed)";
-	writeGitExclude(worktreePath, skillsMarker, ".claude/skills");
-
+	//
+	// `claudeDir` is derived unconditionally (just a path join, no I/O) because
+	// the legacy `!external` block below also needs it for its Stop-hook script
+	// path — that block only runs for non-external agents, which are never
+	// `directCwd`, but the variable must still be in scope there.
 	const claudeDir = join(worktreePath, ".claude");
-	mkdirSync(claudeDir, { recursive: true });
-	const skillsLink = join(claudeDir, "skills");
-	if (!existsSync(skillsLink)) {
-		try {
-			symlinkSync(skillsDir, skillsLink, "dir");
-		} catch {
-			/* best-effort */
+	if (directCwd) {
+		// Direct agents share a real dir (e.g. the vault) as cwd — never write
+		// .claude/skills into it. Give them a namespaced global skills dir instead.
+		const globalSkills = join(homedir(), ".claude", "skills", `ryanos-${agentId}`);
+		mkdirSync(join(homedir(), ".claude", "skills"), { recursive: true });
+		if (!existsSync(globalSkills)) {
+			try {
+				symlinkSync(skillsDir, globalSkills, "dir");
+			} catch {
+				/* best-effort */
+			}
+		}
+	} else {
+		// Linked/isolated worktree: git-excluded .claude/skills symlink (as today).
+		const skillsMarker = "# ADE agent skills symlink (generated, not committed)";
+		writeGitExclude(worktreePath, skillsMarker, ".claude/skills");
+		mkdirSync(claudeDir, { recursive: true });
+		const skillsLink = join(claudeDir, "skills");
+		if (!existsSync(skillsLink)) {
+			try {
+				symlinkSync(skillsDir, skillsLink, "dir");
+			} catch {
+				/* best-effort */
+			}
 		}
 	}
 
