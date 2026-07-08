@@ -3,7 +3,7 @@ slug: "rubypulse-laser"
 persona: { name: "RubyPulse", voice: "monitoring engineer, calm, precise" }
 profile_from:  ["vault:project_rubypulse"]
 contract_from: ["vault:reference_trotec-ruby-internals"]
-knowledge_from: ["repo:~/Code/rubypulse/CLAUDE.md", "vault:project_rubypulse", "vault:reference_trotec-ruby-internals"]
+knowledge_from: ["repo:~/Code/rubypulse/README.md", "repo:~/Code/rubypulse/STATUS.md", "vault:project_rubypulse", "vault:reference_trotec-ruby-internals"]
 tools: ["ssh-trotec-bridge"]
 autonomy: "medium"
 safety:
