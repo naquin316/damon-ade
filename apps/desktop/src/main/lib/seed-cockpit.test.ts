@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projects, workspaces, worktrees } from "@superset/local-db";
@@ -8,6 +8,23 @@ import { v4 as uuidv4 } from "uuid";
 // Route agent-home path helpers under a throwaway home BEFORE importing anything.
 const TEST_HOME = join(tmpdir(), `ade-seed-test-${process.pid}-${Date.now()}`);
 process.env.ADE_HOME_DIR = TEST_HOME;
+
+// Point the seed roster at a sandbox instead of Ryan's real ~/Code checkouts
+// and vault. seed-cockpit's resolveSource() downgrades any linked-worktree
+// whose repoPath doesn't exist on disk to a plain `init` agent, so without
+// this override the "linked-worktree" and "direct" assertions below would
+// only pass on a machine that happens to have those real repos/vault
+// checked out. Only create the repos the "linked-worktree" roster entries
+// reference (ShopifyStore, handlaneultimate, rubypulse, hld-admin,
+// kalshi-btc-lab, .codehq) — see buildSeedTeams() in seed-cockpit.ts.
+const TEST_CODE_ROOT = join(TEST_HOME, "Code");
+const TEST_VAULT = join(TEST_HOME, "vault");
+process.env.ADE_SEED_CODE_ROOT = TEST_CODE_ROOT;
+process.env.ADE_SEED_VAULT = TEST_VAULT;
+for (const repo of ["ShopifyStore", "handlaneultimate", "rubypulse", "hld-admin", "kalshi-btc-lab", ".codehq"]) {
+	mkdirSync(join(TEST_CODE_ROOT, repo), { recursive: true });
+}
+mkdirSync(TEST_VAULT, { recursive: true });
 
 /**
  * bunfig.toml's [test] preload (test-setup.ts) globally mocks both

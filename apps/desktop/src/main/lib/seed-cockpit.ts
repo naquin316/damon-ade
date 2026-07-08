@@ -27,74 +27,93 @@ interface SeedTeamSpec {
 	agents: SeedAgentSpec[];
 }
 
-const CODE = (r: string) => join(homedir(), "Code", r);
-const VAULT = join(
-	homedir(),
-	"Library/Mobile Documents/iCloud~md~obsidian/Documents/RLOS_2026",
-);
+/**
+ * Roster roots, overridable via env so tests can point the seed roster at a
+ * throwaway sandbox instead of Ryan's real ~/Code checkouts and vault (the
+ * `resolveSource` guard below downgrades any `linked-worktree` whose
+ * `repoPath` doesn't exist on disk, so hermetic tests need real dirs to
+ * point at). Read lazily inside `buildSeedTeams()` — not at module load —
+ * so a test that sets the env vars right before calling `seedDefaultCockpit()`
+ * still takes effect.
+ */
+function codeRoot(): string {
+	return process.env.ADE_SEED_CODE_ROOT || join(homedir(), "Code");
+}
+
+function vaultRoot(): string {
+	return (
+		process.env.ADE_SEED_VAULT ||
+		join(homedir(), "Library/Mobile Documents/iCloud~md~obsidian/Documents/RLOS_2026")
+	);
+}
 
 /** Ryan's default cockpit: five teams and their agents. All Claude runtime. */
-const SEED_TEAMS: SeedTeamSpec[] = [
-	{
-		name: "HLD Ops",
-		color: "#E11D48",
-		agents: [
-			{
-				name: "Shopify / Store Cockpit",
-				source: { type: "linked-worktree", repoPath: CODE("ShopifyStore"), branch: "ade/shopify" },
-			},
-			{
-				name: "Storefront Support",
-				source: { type: "linked-worktree", repoPath: CODE("handlaneultimate"), branch: "ade/storefront" },
-			},
-			{
-				name: "RubyPulse / Laser",
-				source: { type: "linked-worktree", repoPath: CODE("rubypulse"), branch: "ade/rubypulse" },
-			},
-			{
-				name: "Foreman / Listings",
-				source: { type: "linked-worktree", repoPath: CODE("hld-admin"), branch: "ade/foreman" },
-			},
-		],
-	},
-	{
-		name: "Hand Lane AI",
-		color: "#7C3AED",
-		agents: [
-			{ name: "Consulting", source: { type: "init" } },
-			{ name: "SaaS Build", source: { type: "init" } },
-		],
-	},
-	{
-		name: "Content / YouTube",
-		color: "#EA580C",
-		agents: [
-			{ name: "Script Writer", source: { type: "direct", path: VAULT } },
-			{ name: "Clip Scout", source: { type: "direct", path: VAULT } },
-		],
-	},
-	{
-		name: "Trading",
-		color: "#16A34A",
-		agents: [
-			{
-				name: "Kalshi BTC / Tessa",
-				source: { type: "linked-worktree", repoPath: CODE("kalshi-btc-lab"), branch: "ade/tessa" },
-			},
-		],
-	},
-	{
-		name: "Personal / RLOS",
-		color: "#2563EB",
-		agents: [
-			{ name: "Daily Planner", source: { type: "direct", path: VAULT } },
-			{
-				name: "Code HQ / Portfolio",
-				source: { type: "linked-worktree", repoPath: CODE(".codehq"), branch: "ade/codehq" },
-			},
-		],
-	},
-];
+function buildSeedTeams(): SeedTeamSpec[] {
+	const CODE = (r: string) => join(codeRoot(), r);
+	const VAULT = vaultRoot();
+
+	return [
+		{
+			name: "HLD Ops",
+			color: "#E11D48",
+			agents: [
+				{
+					name: "Shopify / Store Cockpit",
+					source: { type: "linked-worktree", repoPath: CODE("ShopifyStore"), branch: "ade/shopify" },
+				},
+				{
+					name: "Storefront Support",
+					source: { type: "linked-worktree", repoPath: CODE("handlaneultimate"), branch: "ade/storefront" },
+				},
+				{
+					name: "RubyPulse / Laser",
+					source: { type: "linked-worktree", repoPath: CODE("rubypulse"), branch: "ade/rubypulse" },
+				},
+				{
+					name: "Foreman / Listings",
+					source: { type: "linked-worktree", repoPath: CODE("hld-admin"), branch: "ade/foreman" },
+				},
+			],
+		},
+		{
+			name: "Hand Lane AI",
+			color: "#7C3AED",
+			agents: [
+				{ name: "Consulting", source: { type: "init" } },
+				{ name: "SaaS Build", source: { type: "init" } },
+			],
+		},
+		{
+			name: "Content / YouTube",
+			color: "#EA580C",
+			agents: [
+				{ name: "Script Writer", source: { type: "direct", path: VAULT } },
+				{ name: "Clip Scout", source: { type: "direct", path: VAULT } },
+			],
+		},
+		{
+			name: "Trading",
+			color: "#16A34A",
+			agents: [
+				{
+					name: "Kalshi BTC / Tessa",
+					source: { type: "linked-worktree", repoPath: CODE("kalshi-btc-lab"), branch: "ade/tessa" },
+				},
+			],
+		},
+		{
+			name: "Personal / RLOS",
+			color: "#2563EB",
+			agents: [
+				{ name: "Daily Planner", source: { type: "direct", path: VAULT } },
+				{
+					name: "Code HQ / Portfolio",
+					source: { type: "linked-worktree", repoPath: CODE(".codehq"), branch: "ade/codehq" },
+				},
+			],
+		},
+	];
+}
 
 /**
  * Resolve a seed agent's source, guarding against a `linked-worktree` whose
@@ -123,6 +142,7 @@ export function seedDefaultCockpit(): SeededAgent[] {
 	if (existing.length > 0) return [];
 
 	const seeded: SeededAgent[] = [];
+	const SEED_TEAMS = buildSeedTeams();
 
 	SEED_TEAMS.forEach((team, teamIndex) => {
 		const category = localDb
