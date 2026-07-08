@@ -727,3 +727,76 @@ describe("linked-worktree agent — real worktree with .git as a FILE (regressio
 		expect(exclude).toContain(".claude/skills");
 	});
 });
+
+describe("scaffoldAgentMemory — authored brain install (2B-2)", () => {
+	it("installs an authored brain from authoredBrainDir instead of the template", async () => {
+		const home = await import("./agent-home");
+		const { scaffoldAgentMemory } = await import("./agent-scaffold");
+		const fs = require("node:fs") as typeof import("node:fs");
+		const sandbox = process.env.ADE_HOME_DIR as string;
+
+		const brainDir = join(sandbox, "authored", "brain");
+		fs.mkdirSync(join(brainDir, "context"), { recursive: true });
+		fs.mkdirSync(join(brainDir, "skills", "reindex-store"), { recursive: true });
+		fs.writeFileSync(join(brainDir, "persona.txt"), "You are Store Cockpit, HLD's operator.");
+		fs.writeFileSync(
+			join(brainDir, "context", "CLAUDE.md"),
+			"# Knowledge\n- SSOT: vault:hld-store-cockpit",
+		);
+		fs.writeFileSync(join(brainDir, "mcp.json"), JSON.stringify({ mcpServers: { shopify: {} } }));
+		fs.writeFileSync(
+			join(brainDir, "skills", "reindex-store", "SKILL.md"),
+			"---\nname: reindex-store\n---\n",
+		);
+
+		const agentId = "authored-agent-1";
+		scaffoldAgentMemory({
+			agentId,
+			agentName: "Shopify / Store Cockpit",
+			runtime: "claude",
+			userName: "Ryan",
+			external: true,
+			authoredBrainDir: brainDir,
+		});
+
+		expect(readFileSync(home.getAgentPersonaPath(agentId), "utf8")).toContain("HLD's operator");
+		expect(
+			readFileSync(join(home.getAgentContextDir(agentId), "CLAUDE.md"), "utf8"),
+		).toContain("vault:hld-store-cockpit");
+		expect(
+			JSON.parse(readFileSync(home.getAgentMcpPath(agentId), "utf8")).mcpServers.shopify,
+		).toBeDefined();
+		expect(
+			readFileSync(join(home.getAgentSkillsDir(agentId), "reindex-store", "SKILL.md"), "utf8"),
+		).toContain("reindex-store");
+	});
+
+	it("never writes MEMORY.md from the authored-brain path", async () => {
+		const home = await import("./agent-home");
+		const { scaffoldAgentMemory } = await import("./agent-scaffold");
+		const fs = require("node:fs") as typeof import("node:fs");
+		const sandbox = process.env.ADE_HOME_DIR as string;
+
+		const brainDir = join(sandbox, "authored2", "brain");
+		fs.mkdirSync(brainDir, { recursive: true });
+		fs.writeFileSync(join(brainDir, "persona.txt"), "persona");
+
+		const agentId = "authored-agent-2";
+		scaffoldAgentMemory({
+			agentId,
+			agentName: "Shopify / Store Cockpit",
+			runtime: "claude",
+			external: true,
+		});
+		const memPath = join(home.getAgentMemoryDir(agentId), "MEMORY.md");
+		fs.writeFileSync(memPath, "LEARNED: do not clobber me");
+		scaffoldAgentMemory({
+			agentId,
+			agentName: "Shopify / Store Cockpit",
+			runtime: "claude",
+			external: true,
+			authoredBrainDir: brainDir,
+		});
+		expect(readFileSync(memPath, "utf8")).toBe("LEARNED: do not clobber me");
+	});
+});

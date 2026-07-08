@@ -7,6 +7,7 @@ import { MEMORY_SCAFFOLD_ENABLED } from "./feature-flags";
 import { type AgentRepoSource, setupAgentRepo } from "./agent-repo";
 import { scaffoldAgentMemory } from "./agent-scaffold";
 import { resolveAgentWorktreePath } from "./agent-worktree";
+import { getAuthoredBrainDir } from "./seed-brains";
 import { getUserName } from "./user-profile";
 
 /**
@@ -136,6 +137,7 @@ async function runAgentInit(agentId: string): Promise<void> {
 					ctx.source.type === "linked-worktree" ||
 					ctx.source.type === "direct",
 				directCwd: ctx.source.type === "direct",
+				authoredBrainDir: getAuthoredBrainDir(ctx.agentName),
 			});
 		}
 

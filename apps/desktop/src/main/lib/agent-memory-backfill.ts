@@ -7,6 +7,7 @@ import { scaffoldAgentMemory } from "./agent-scaffold";
 import { resolveAgentWorktreePath } from "./agent-worktree";
 import { MEMORY_SCAFFOLD_ENABLED } from "./feature-flags";
 import { localDb } from "./local-db";
+import { getAuthoredBrainDir } from "./seed-brains";
 import { getUserName } from "./user-profile";
 
 /**
@@ -70,6 +71,7 @@ export function backfillAgentMemory(): void {
 				runtime: agent.runtime,
 				userName,
 				worktreePath,
+				authoredBrainDir: getAuthoredBrainDir(agent.name || "Agent"),
 			});
 			scaffolded++;
 		} catch (error) {

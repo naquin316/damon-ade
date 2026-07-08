@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
 import {
 	appendFileSync,
+	cpSync,
 	existsSync,
 	mkdirSync,
+	readdirSync,
 	readFileSync,
 	symlinkSync,
 	writeFileSync,
@@ -80,6 +82,14 @@ export interface ScaffoldParams {
 	 * cwd don't collide on a single `.claude/skills` symlink.
 	 */
 	directCwd?: boolean;
+	/**
+	 * Absolute path to an authored brain dir (assets/seed-brains/<slug>/brain,
+	 * resolved by getAuthoredBrainDir). When set + populated, persona.txt /
+	 * context/CLAUDE.md / mcp.json are sourced from here instead of the in-code
+	 * templates, and skills/* are copied in. NEVER touches MEMORY.md. Undefined
+	 * (greenfield / unmapped agents) → the generic templates below are used.
+	 */
+	authoredBrainDir?: string;
 }
 
 function sub(
@@ -99,6 +109,15 @@ function sub(
 function writeIfEmpty(path: string, content: string): void {
 	if (existsSync(path) && readFileSync(path, "utf8").trim().length > 0) return;
 	writeFileSync(path, content, "utf8");
+}
+
+/** Read an authored brain file if present + non-empty, else undefined. */
+function authoredFile(brainDir: string | undefined, rel: string): string | undefined {
+	if (!brainDir) return undefined;
+	const p = join(brainDir, rel);
+	if (!existsSync(p)) return undefined;
+	const body = readFileSync(p, "utf8");
+	return body.trim().length > 0 ? body : undefined;
 }
 
 /**
@@ -463,6 +482,7 @@ export function scaffoldAgentMemory({
 	worktreePath: worktreePathOverride,
 	external,
 	directCwd,
+	authoredBrainDir,
 }: ScaffoldParams): void {
 	const agentHome = getAgentHome(agentId);
 	const memoryDir = getAgentMemoryDir(agentId);
@@ -507,8 +527,14 @@ export function scaffoldAgentMemory({
 	mkdirSync(contextDir, { recursive: true });
 	const externalReflectHookPath = join(agentHome, "reflect-on-stop.mjs");
 	writeIfEmpty(externalReflectHookPath, reflectHookScript(agentHome, resolvedUserName));
-	writeIfEmpty(join(contextDir, "CLAUDE.md"), sub(CONTEXT_CLAUDE_MD, vars));
-	writeIfEmpty(getAgentPersonaPath(agentId), sub(PERSONA_TXT, vars));
+	writeIfEmpty(
+		join(contextDir, "CLAUDE.md"),
+		authoredFile(authoredBrainDir, "context/CLAUDE.md") ?? sub(CONTEXT_CLAUDE_MD, vars),
+	);
+	writeIfEmpty(
+		getAgentPersonaPath(agentId),
+		authoredFile(authoredBrainDir, "persona.txt") ?? sub(PERSONA_TXT, vars),
+	);
 	writeIfEmpty(
 		getAgentSettingsPath(agentId),
 		`${JSON.stringify(
@@ -534,7 +560,26 @@ export function scaffoldAgentMemory({
 			2,
 		)}\n`,
 	);
-	writeIfEmpty(getAgentMcpPath(agentId), `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`);
+	writeIfEmpty(
+		getAgentMcpPath(agentId),
+		authoredFile(authoredBrainDir, "mcp.json") ??
+			`${JSON.stringify({ mcpServers: {} }, null, 2)}\n`,
+	);
+
+	// Authored starter skills: copy each skills/<name>/ that isn't already
+	// present. `writeIfEmpty` semantics at the folder level — a learned skill of
+	// the same name is never overwritten.
+	if (authoredBrainDir) {
+		const authoredSkills = join(authoredBrainDir, "skills");
+		if (existsSync(authoredSkills)) {
+			for (const entry of readdirSync(authoredSkills, { withFileTypes: true })) {
+				if (!entry.isDirectory()) continue;
+				const dest = join(skillsDir, entry.name);
+				if (existsSync(dest)) continue; // never clobber learned skills
+				cpSync(join(authoredSkills, entry.name), dest, { recursive: true });
+			}
+		}
+	}
 
 	// Per-agent skills must be discoverable by Claude Code (it can't load skills by
 	// flag): symlink <agent-home>/skills into <worktree>/.claude/skills. This is
