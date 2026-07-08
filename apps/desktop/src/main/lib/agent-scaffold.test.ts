@@ -771,7 +771,7 @@ describe("scaffoldAgentMemory — authored brain install (2B-2)", () => {
 		).toContain("reindex-store");
 	});
 
-	it("never writes MEMORY.md from the authored-brain path", async () => {
+	it("never writes MEMORY.md from the authored-brain path (non-empty preservation)", async () => {
 		const home = await import("./agent-home");
 		const { scaffoldAgentMemory } = await import("./agent-scaffold");
 		const fs = require("node:fs") as typeof import("node:fs");
@@ -798,5 +798,46 @@ describe("scaffoldAgentMemory — authored brain install (2B-2)", () => {
 			authoredBrainDir: brainDir,
 		});
 		expect(readFileSync(memPath, "utf8")).toBe("LEARNED: do not clobber me");
+	});
+
+	it("never reads MEMORY.md from the authored-brain path (fresh agent, discriminating)", async () => {
+		// This is the test that actually falsifies the regression. Unlike the
+		// non-empty-preservation case above (which passes even if a bug wires
+		// `authoredFile(authoredBrainDir, "MEMORY.md")` into the MEMORY.md write —
+		// `writeIfEmpty` would just skip the write since the file is already
+		// non-empty), this scaffolds a BRAND-NEW agent whose MEMORY.md does not
+		// pre-exist, with an authoredBrainDir that itself ships a MEMORY.md
+		// carrying a distinctive sentinel. Under the regression, the agent's
+		// MEMORY.md would contain the authored sentinel; correct code always
+		// produces the generic template regardless of what's in authoredBrainDir.
+		const home = await import("./agent-home");
+		const { scaffoldAgentMemory } = await import("./agent-scaffold");
+		const fs = require("node:fs") as typeof import("node:fs");
+		const sandbox = process.env.ADE_HOME_DIR as string;
+
+		const brainDir = join(sandbox, "authored3", "brain");
+		fs.mkdirSync(brainDir, { recursive: true });
+		fs.writeFileSync(join(brainDir, "persona.txt"), "persona for fresh agent");
+		const AUTHORED_SENTINEL = "AUTHORED-MEMORY-SHOULD-BE-IGNORED";
+		fs.writeFileSync(join(brainDir, "MEMORY.md"), AUTHORED_SENTINEL);
+
+		const agentId = "authored-agent-3-fresh";
+		scaffoldAgentMemory({
+			agentId,
+			agentName: "Shopify / Store Cockpit",
+			runtime: "claude",
+			external: true,
+			authoredBrainDir: brainDir,
+		});
+
+		const memPath = join(home.getAgentMemoryDir(agentId), "MEMORY.md");
+		const written = readFileSync(memPath, "utf8");
+		// Template-only markers (from the MEMORY_MD constant in agent-scaffold.ts:
+		// `## Environment` heading + `- Agent home:` line) — never present in the
+		// authored file we wrote above, so their presence proves the template was
+		// used, not the authored MEMORY.md.
+		expect(written).toContain("## Environment");
+		expect(written).toContain("Agent home:");
+		expect(written).not.toContain(AUTHORED_SENTINEL);
 	});
 });

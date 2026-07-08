@@ -568,7 +568,10 @@ export function scaffoldAgentMemory({
 
 	// Authored starter skills: copy each skills/<name>/ that isn't already
 	// present. `writeIfEmpty` semantics at the folder level — a learned skill of
-	// the same name is never overwritten.
+	// the same name is never overwritten. Best-effort per entry: a malformed
+	// authored skill asset (unreadable file, broken symlink, etc.) must not abort
+	// scaffolding the rest of the agent's brain — same idiom as the symlinkSync
+	// calls below.
 	if (authoredBrainDir) {
 		const authoredSkills = join(authoredBrainDir, "skills");
 		if (existsSync(authoredSkills)) {
@@ -576,7 +579,11 @@ export function scaffoldAgentMemory({
 				if (!entry.isDirectory()) continue;
 				const dest = join(skillsDir, entry.name);
 				if (existsSync(dest)) continue; // never clobber learned skills
-				cpSync(join(authoredSkills, entry.name), dest, { recursive: true });
+				try {
+					cpSync(join(authoredSkills, entry.name), dest, { recursive: true });
+				} catch {
+					/* best-effort */
+				}
 			}
 		}
 	}
