@@ -10,7 +10,7 @@
 
 ## 1. Overview & fit
 
-An "agent" in RyanOS is already a Claude Code session with an injected external brain (`persona.txt` Profile+Contract + `context/CLAUDE.md` Knowledge + `MEMORY.md` learned + `skills/`) and a per-agent `mcp.json`, seeded on first boot into **Teams → Agents**. Sabrina's "team of 7 skills" maps almost 1:1 onto this: her *skills* become RyanOS agent *skills*, her *brand-brief* becomes Ryan's existing `user_hld-brand-facts` vault SSOT, and Blotato's agent-native MCP (`https://mcp.blotato.com/mcp`) becomes a per-agent connector loaded through RyanOS's existing `--mcp-config … --strict-mcp-config` launch flags.
+An "agent" in RyanOS is already a Claude Code session with an injected external brain (`persona.txt` Profile+Contract + `context/CLAUDE.md` Knowledge + `MEMORY.md` learned + `skills/`) and a per-agent `mcp.json`, seeded on first boot into **Teams → Agents**. Sabrina's "team of 7 skills" maps almost 1:1 onto this: her *skills* become RyanOS agent *skills*, her *brand-brief* becomes Ryan's existing HLD voice assets (hld-admin's `brand-voice`/`product-facts` skills + `user_hld-brand-facts`), and Blotato's agent-native MCP (`https://mcp.blotato.com/mcp`) becomes a per-agent connector loaded through RyanOS's existing `--mcp-config … --strict-mcp-config` launch flags.
 
 So this is **not a new subsystem** — it is the next authored team in the Phase 2B-2 brain-authoring work, plus a small skill fork and one MCP wiring.
 
@@ -18,6 +18,8 @@ So this is **not a new subsystem** — it is the next authored team in the Phase
 - The pack ships as a downloadable ZIP of 7 `SKILL.md` files → we fork exact source, no reverse-engineering.
 - **6 of the 7 skills need zero Blotato.** Only `post-scheduler` touches it, and it *falls back to writing the post to a file* when Blotato is not connected. Therefore **the approval gate lives before Blotato, in RyanOS/Hermes** — it does not depend on Blotato having a "held/draft" state.
 - The grader weights **hook strength at 50%** and loops a draft to 8+/10 before it is considered shippable.
+
+**Critical brand-voice correction (the reason this doesn't just sound like a generic AI marketing bot):** Blotato's pack is tuned for **virality** — contrarian wedges, "I tested 47 X" receipts, polarizing CTAs. That is the *opposite* of Hand Lane Designs' established voice. Ryan already owns a mature, real-listing-trained HLD voice as a skill at `~/Code/hld-admin/.claude/skills/brand-voice` (plus `product-facts`, `listing-writer`, `pricing-analyst`): *"sound like Ryan talking to a customer at a craft fair: warm, direct, proud of the work, zero corporate gloss,"* with a banned-cliché list and gift-framing rules. **The HLD side of this team reuses those existing skills; it does not inherit Blotato's viral defaults.** Only the personal / Hand Lane AI brand uses Blotato's virality tuning (where it is actually appropriate). See §3 and §3a.
 
 ## 2. The team (hybrid: 1 manager + 2 specialists)
 
@@ -55,14 +57,27 @@ Decision: **fork, don't reference.** We copy the 7 `SKILL.md` files from `blotat
 
 **Three HLD-specific edits to the forked pack (everything else kept verbatim initially, tuned later):**
 
-1. **`brand-brief` → two briefs, not one.**
-   - `brand-brief-hld.md` — product-selling voice. Sourced from `user_hld-brand-facts`: New Braunfels TX (never Round Rock), hand-engraved wording, customer-facing visuals must match the physical product, no fabricated product claims.
-   - `brand-brief-personal.md` — build-in-public / Hand Lane AI creator voice (Sabrina-style: contrarian wedge, receipts, build-in-public).
+1. **`brand-brief` → two briefs, not one — and the HLD brief is built from Ryan's existing voice skills, not from scratch.**
+   - `brand-brief-hld.md` — **generated from and pointing to `~/Code/hld-admin/.claude/skills/brand-voice` + `product-facts`** (the real, listing-trained HLD voice: warm Texas maker, concrete over hype, gift-framing, banned-cliché list, "zero corporate gloss"). Also carries the `user_hld-brand-facts` facts (New Braunfels TX not Round Rock, "hand-engraved", visuals must match, no fabricated claims). The HLD side **reuses proven assets** rather than reinventing voice.
+   - `brand-brief-personal.md` — build-in-public / Hand Lane AI creator voice (Sabrina-style: contrarian wedge, receipts, build-in-public). This brand *wants* Blotato's virality tuning.
    - The SM Manager selects the brief per job; the Strategist owns keeping both briefs current.
 
-2. **`post-grader` voice rules reconciled with brand facts.** Blotato's baked-in universal rules (contractions, digits-not-words, no em-dashes, active voice, one idea per post, hook = 50% of score) mostly align with HLD standards already. We add HLD's non-negotiables as hard fails: correct town, correct engraving language, no invented product attributes/claims.
+2. **`post-grader` → two rubrics, keep the mechanism.** Keep Blotato's grading *machinery* (self-grade, list top-3 fixes, loop to 8+/10) but swap the *rubric values* per brand. See §3a.
 
 3. **`post-scheduler` gated.** Instead of scheduling immediately, it writes the graded post to an **approval queue** (§4) and pings Ryan. A separate "approve" action is what actually fires the Blotato MCP call.
+
+### 3a. Per-brand grading rubric
+
+The grader's mechanism is shared; the rubric it scores against is chosen by the active brand brief:
+
+| | **HLD (store)** | **Personal / Hand Lane AI** |
+|---|---|---|
+| Voice source | hld-admin `brand-voice` skill | Blotato virality tuning + personal wedge |
+| Hard fails | banned clichés ("elevate", "premium quality", "makes a statement", em-dash AI cadence, 3 adjectives in a row); wrong town; wrong craft term; invented product claims | off-voice for the wedge; fabricated receipts |
+| Scored dimensions | warmth, concreteness (say what it is / made of / who it's for), gift-framing, permanence-of-engraving, platform fit | hook strength (≈50%), curiosity, share-worthiness, polarity, platform fit |
+| Optimizes for | trust + "a real person made this" → clicks to store | reach + audience growth → inbound |
+
+Shared across both (Blotato universal rules that already match HLD standards): contractions, digits-not-words, no em-dashes, active voice, short sentences, one idea per post.
 
 ## 4. Approval gate (draft → approve → schedule)
 
@@ -100,9 +115,11 @@ Follows the existing manifest + brain-author flow exactly. Three new `assets/see
 
 | Agent | Persona | Brain sources | Tools | Autonomy | Safety |
 |---|---|---|---|---|---|
-| SM Manager | "Editor" | `user_hld-brand-facts`, forked Blotato pack, `handlaneultimate-fb-hitl` (HITL pattern) | blotato (MCP) | medium | never publish without approval; brand-correct facts only |
+| SM Manager | "Editor" | hld-admin `brand-voice` + `product-facts` skills, `user_hld-brand-facts`, forked Blotato pack, `handlaneultimate-fb-hitl` (HITL pattern) | blotato (MCP) | medium | never publish without approval; brand-correct facts only; HLD grader ≠ virality grader |
 | Repurposer | "Multiplier" | `clip-scout` skill+output, forked `repurpose`/`viral-hooks` | vault (read Clip Scout) | high (drafts only; cannot publish) | drafts to queue only |
-| Strategist | "Planner" | both brand briefs, `viral-hooks`, content calendar | vault | medium | — |
+| Strategist | "Planner" | both brand briefs, `viral-hooks`, `content-calendar` skill (net-new) | vault | medium | — |
+
+The `content-calendar` skill is the one net-new skill beyond the forked Blotato pack: it produces the week's plan per brand (themes, slots, which long-form to repurpose) into a vault note that feeds the Manager and Repurposer.
 
 - Manager's persona encodes the two-brand switching + the gate as a hard contract rule ("never call the Blotato schedule tool on an un-approved item").
 - Repurposer and Strategist carry **no** Blotato MCP — they physically cannot publish; only the Manager holds the keys.
@@ -110,7 +127,7 @@ Follows the existing manifest + brain-author flow exactly. Three new `assets/see
 
 ## 8. Build decomposition (phased for a fast first win)
 
-- **Phase A — prove the loop (≈1 session):** download `blotato-content-pack.zip`; fork the 3 edited skills; author the **SM Manager** brain only; wire Blotato MCP + connect accounts; run **one real HLD post end-to-end** through draft → grade → Telegram approval → Blotato schedule. Proves the whole loop with one agent before scaling.
+- **Phase A — prove the loop with a real HLD post (≈1 session):** download `blotato-content-pack.zip`; fork the edited skills; build `brand-brief-hld.md` from hld-admin's `brand-voice` + `product-facts`; wire the **HLD grader rubric** (§3a); author the **SM Manager** brain only; wire Blotato MCP + connect accounts; run **one real HLD store post end-to-end** through draft → grade (against the HLD rubric, not virality) → Telegram approval → Blotato schedule. Success = the post sounds like the craft-fair voice AND passes the gate. Proves the whole loop with one agent before scaling.
 - **Phase B — full crew:** add Repurposer + Strategist manifests/brains; wire the two brand briefs; run a manual "video → week of posts" batch through the gate.
 - **Phase C — automate:** Hermes weekly cron + Telegram approval digest; fold all three manifests into the 2B-2 seed so a re-seed boots the whole team brained.
 
@@ -131,7 +148,9 @@ Follows the existing manifest + brain-author flow exactly. Three new `assets/see
 ## 11. Risks & mitigations
 
 - **Blotato MCP tool surface unknown until wired.** Mitigation: Phase A explicitly validates the `post-scheduler` → Blotato call against the live MCP before scaling; `post-scheduler`'s documented file-fallback covers the case where a needed tool is missing.
+- **Blotato-virality voice overriding HLD's craft-fair voice** (the core risk — off-brand-by-default). Mitigation: HLD brief is sourced from hld-admin's proven `brand-voice`/`product-facts`, the HLD grader uses the §3a rubric (banned clichés = hard fails, virality tuned down), and the personal-brand virality rubric is never applied to HLD jobs.
 - **Two-brand voice bleed** (HLD product voice leaking into personal posts or vice-versa). Mitigation: separate brand-brief files + a hard grader check that the active brief matches the target accounts.
+- **hld-admin skills drift / availability** (the Manager depends on skills living in another repo). Mitigation: the brand-brief generation copies the relevant voice rules into the seed brief AND records a pointer back to the source skill, so the Manager works even if hld-admin isn't checked out, but can be refreshed when it is.
 - **Brand-fact errors reaching customers** (e.g. wrong town). Mitigation: HLD non-negotiables are hard grader fails AND the approval gate is the backstop.
 - **Persona.txt length limit** (~1K practical for `--append-system-prompt-file`): keep the Manager's Profile+Contract tight; push the skill mechanics into skills, brand facts into `context/CLAUDE.md` pointers.
 - **Skill drift from upstream Blotato pack:** we forked deliberately; periodically diff against a fresh pack download if Blotato ships improvements worth pulling.
