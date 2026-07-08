@@ -224,34 +224,27 @@ export const createQueryProcedures = () => {
 			}),
 
 		/**
-			 * Resolves an Agent's runtime launch (cwd + commands) for the renderer.
-			 * The brain paths (settings/persona/context/mcp for Claude) are
-			 * main-process paths derived from the agent id — see agent-launch.ts —
-			 * so the renderer cannot build this itself.
-			 */
-			getAgentLaunch: publicProcedure
-				.input(z.object({ id: z.string() }))
-				.query(({ input }) => {
-					const ws = localDb
-						.select()
-						.from(workspaces)
-						.where(eq(workspaces.id, input.id))
-						.get();
-					if (!ws?.runtime) {
-						throw new Error(`Agent ${input.id} has no runtime`);
-					}
-					const worktree = ws.worktreeId
-						? localDb
-								.select()
-								.from(worktrees)
-								.where(eq(worktrees.id, ws.worktreeId))
-								.get()
-						: null;
-					return {
-						cwd: worktree?.path ?? getAgentWorktreePath(input.id),
-						commands: buildAgentLaunchCommand(input.id, ws.runtime),
-					};
-				}),
+		 * Resolves an Agent's runtime launch (cwd + commands) for the renderer.
+		 * The brain paths (settings/persona/context/mcp for Claude) are
+		 * main-process paths derived from the agent id — see agent-launch.ts —
+		 * so the renderer cannot build this itself.
+		 */
+		getAgentLaunch: publicProcedure
+			.input(z.object({ id: z.string() }))
+			.query(({ input }) => {
+				const ws = localDb
+					.select()
+					.from(workspaces)
+					.where(eq(workspaces.id, input.id))
+					.get();
+				if (!ws?.runtime) {
+					throw new Error(`Agent ${input.id} has no runtime`);
+				}
+				return {
+					cwd: getWorkspacePath(ws) ?? "",
+					commands: buildAgentLaunchCommand(input.id, ws.runtime),
+				};
+			}),
 
 		getAll: publicProcedure.query(() => {
 			return localDb
