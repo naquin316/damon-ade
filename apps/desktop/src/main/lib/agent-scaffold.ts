@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import {
 	appendFileSync,
 	existsSync,
@@ -6,7 +7,7 @@ import {
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { AgentRuntime } from "@superset/local-db";
 import {
 	getAgentCodexHome,
@@ -16,6 +17,7 @@ import {
 	getAgentMemoryDir,
 	getAgentPersonaPath,
 	getAgentSettingsPath,
+	getAgentSkillsDir,
 	getAgentWorktreePath,
 } from "./agent-home";
 
@@ -87,6 +89,52 @@ function sub(
 function writeIfEmpty(path: string, content: string): void {
 	if (existsSync(path) && readFileSync(path, "utf8").trim().length > 0) return;
 	writeFileSync(path, content, "utf8");
+}
+
+/**
+ * Append `pattern` (under `marker`, idempotently) to a worktree's SHARED
+ * `info/exclude` file, resolved via `git rev-parse --git-common-dir` rather
+ * than assumed to be `<worktreePath>/.git/info`. For a `linked-worktree`
+ * agent `.git` is a plain FILE (a `gitdir:` pointer, per
+ * https://git-scm.com/docs/gitrepository-layout), not a directory —
+ * `mkdirSync(join(worktreePath, ".git", "info"))` throws ENOTDIR on a real
+ * linked worktree. `info/exclude` lives in and is shared by the repo's
+ * common dir across all of its worktrees, so resolving it via
+ * --git-common-dir is correct for every repo shape (plain repo, linked
+ * worktree, bare repo).
+ *
+ * Never throws: not a git repo (e.g. a `direct`-mode agent in a plain
+ * directory) or any I/O failure is swallowed as best-effort, so a failed
+ * exclude write can never block a caller from still creating the
+ * `.claude/skills` symlink afterward.
+ */
+function writeGitExclude(worktreePath: string, marker: string, pattern: string): void {
+	let commonDir: string;
+	try {
+		commonDir = execFileSync(
+			"git",
+			["-C", worktreePath, "rev-parse", "--git-common-dir"],
+			// stderr ignored: "not a git repository" is an expected, handled case
+			// (e.g. a `direct`-mode agent in a plain directory), not an error worth
+			// surfacing to the console on every scaffold.
+			{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+		).trim();
+	} catch {
+		return; // Not a git repo (or git unavailable) — nothing to exclude.
+	}
+	try {
+		const infoDir = isAbsolute(commonDir)
+			? join(commonDir, "info")
+			: join(worktreePath, commonDir, "info");
+		mkdirSync(infoDir, { recursive: true });
+		const excludePath = join(infoDir, "exclude");
+		const existing = existsSync(excludePath) ? readFileSync(excludePath, "utf8") : "";
+		if (!existing.includes(marker)) {
+			appendFileSync(excludePath, `\n${marker}\n${pattern}\n`, "utf8");
+		}
+	} catch {
+		/* best-effort */
+	}
 }
 
 // AGENT.md is the ADE analog of Hermes' SOUL.md: a short identity that leads the
@@ -394,7 +442,7 @@ export function scaffoldAgentMemory({
 	// Memory/skills stay under <agent-home> either way.
 	const worktreePath =
 		worktreePathOverride?.trim() || getAgentWorktreePath(agentId);
-	const skillsDir = join(agentHome, "skills");
+	const skillsDir = getAgentSkillsDir(agentId);
 	const resolvedUserName = userName?.trim() || "the user";
 
 	const vars: Record<string, string> = {
@@ -465,7 +513,15 @@ export function scaffoldAgentMemory({
 	// Per-agent skills must be discoverable by Claude Code (it can't load skills by
 	// flag): symlink <agent-home>/skills into <worktree>/.claude/skills. This is
 	// the ONE thing we add to a real (external) worktree; kept out of the repo
-	// via .git/info/exclude, never a tracked file.
+	// via the shared .git/info/exclude, never a tracked file.
+	//
+	// Crash-safety: the exclude entry is written FIRST — and writeGitExclude
+	// never throws — so a failure resolving/writing it can never leave an
+	// UNPROTECTED symlink dropped into a real repo the user didn't ask to have
+	// modified.
+	const skillsMarker = "# ADE agent skills symlink (generated, not committed)";
+	writeGitExclude(worktreePath, skillsMarker, ".claude/skills");
+
 	const claudeDir = join(worktreePath, ".claude");
 	mkdirSync(claudeDir, { recursive: true });
 	const skillsLink = join(claudeDir, "skills");
@@ -474,18 +530,6 @@ export function scaffoldAgentMemory({
 			symlinkSync(skillsDir, skillsLink, "dir");
 		} catch {
 			/* best-effort */
-		}
-	}
-	if (existsSync(join(worktreePath, ".git"))) {
-		const infoDir = join(worktreePath, ".git", "info");
-		mkdirSync(infoDir, { recursive: true });
-		const skillsExcludePath = join(infoDir, "exclude");
-		const skillsMarker = "# ADE agent skills symlink (generated, not committed)";
-		const existingSkillsExclude = existsSync(skillsExcludePath)
-			? readFileSync(skillsExcludePath, "utf8")
-			: "";
-		if (!existingSkillsExclude.includes(skillsMarker)) {
-			appendFileSync(skillsExcludePath, `\n${skillsMarker}\n.claude/skills\n`, "utf8");
 		}
 	}
 
@@ -543,22 +587,11 @@ export function scaffoldAgentMemory({
 		);
 
 		// Keep the generated bridge files out of the repo (local, per-worktree).
-		// Guard against a duplicate block when re-run by the backfill.
-		const excludePath = join(worktreePath, ".git", "info", "exclude");
+		// Guard against a duplicate block when re-run by the backfill. Resolved via
+		// git-common-dir (not assumed `<worktree>/.git/info`) — same rationale as
+		// the skills exclude above; a linked worktree's `.git` is a plain file.
 		const excludeMarker = "# ADE agent bridge files (generated, not committed)";
-		if (existsSync(join(worktreePath, ".git"))) {
-			mkdirSync(join(worktreePath, ".git", "info"), { recursive: true });
-			const existingExclude = existsSync(excludePath)
-				? readFileSync(excludePath, "utf8")
-				: "";
-			if (!existingExclude.includes(excludeMarker)) {
-				appendFileSync(
-					excludePath,
-					`\n${excludeMarker}\n${BRIDGE_EXCLUDES.join("\n")}\n`,
-					"utf8",
-				);
-			}
-		}
+		writeGitExclude(worktreePath, excludeMarker, BRIDGE_EXCLUDES.join("\n"));
 
 		// Codex needs the concatenated bridge (it can't import). Generate it now;
 		// it is regenerated on each codex launch.

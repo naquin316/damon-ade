@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, describe, expect, it, mock } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -337,7 +338,11 @@ describe("external worktree (local-path agents) — bridges honor the override",
 	const externalWt = join(TEST_HOME, "external-repos", agentId);
 
 	beforeAll(() => {
-		fs.mkdirSync(join(externalWt, ".git", "info"), { recursive: true });
+		// A REAL git repo (writeGitExclude resolves info/exclude via `git
+		// rev-parse --git-common-dir`, which requires an actual repo — a bare
+		// `.git/info` dir with no HEAD/refs/objects is not recognized by git).
+		fs.mkdirSync(externalWt, { recursive: true });
+		execFileSync("git", ["init"], { cwd: externalWt });
 		scaffoldAgentMemory({
 			agentId,
 			agentName: "Exty",
@@ -395,7 +400,9 @@ describe("backfillAgentMemory — one-time migration of pre-flip agents", () => 
 		);
 		// EXTERNAL: only an external git repo exists; no derived worktree, empty
 		// memory/ (never created) — mirrors a pre-flip local-path agent exactly.
-		fs.mkdirSync(join(EXTERNAL_WT, ".git", "info"), { recursive: true });
+		// A REAL repo (see the "external worktree" describe block above for why).
+		fs.mkdirSync(EXTERNAL_WT, { recursive: true });
+		execFileSync("git", ["init"], { cwd: EXTERNAL_WT });
 
 		const rows = [
 			{ id: EMPTY, name: "Empty", runtime: "claude", deletingAt: null },
@@ -587,5 +594,81 @@ describe("backfill on staged null-worktree agents (boot-hang regression)", () =>
 
 	it("never does a worktrees DB lookup for a null worktree_id", () => {
 		expect(worktreesLookups).toBe(0);
+	});
+});
+
+describe("linked-worktree agent — real worktree with .git as a FILE (regression)", () => {
+	// Reproduces the CRITICAL Phase 2A Task 3 bug: a real `git worktree add`
+	// checkout has `.git` as a plain FILE (a `gitdir:` pointer), not a
+	// directory. The old code did `mkdirSync(join(worktreePath, ".git",
+	// "info"))`, which throws ENOTDIR on a real linked worktree — AFTER the
+	// .claude/skills symlink had already been dropped, unprotected, into the
+	// user's real repo. Exercises the exact path a linked-worktree agent takes:
+	// setupAgentRepo's `linked-worktree` branch (real `git worktree add`) into
+	// scaffoldAgentMemory with `external: true`.
+	const fs = require("node:fs") as typeof import("node:fs");
+	const agentId = "agent-linked-wt";
+	const sourceRepoPath = join(TEST_HOME, "source-repos", "real-repo");
+	const branch = "agent-linked-wt-branch";
+	let worktreePath: string;
+
+	beforeAll(async () => {
+		// A real source repo the user already has on disk, with an initial
+		// commit (`git worktree add` needs at least one commit to branch off).
+		fs.mkdirSync(sourceRepoPath, { recursive: true });
+		try {
+			execFileSync("git", ["init", "--initial-branch=main"], { cwd: sourceRepoPath });
+		} catch {
+			execFileSync("git", ["init"], { cwd: sourceRepoPath });
+		}
+		execFileSync("git", ["config", "user.name", "Test User"], { cwd: sourceRepoPath });
+		execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: sourceRepoPath });
+		execFileSync("git", ["commit", "--allow-empty", "-m", "Initial commit"], {
+			cwd: sourceRepoPath,
+		});
+
+		const result = await setupAgentRepo({
+			agentId,
+			source: { type: "linked-worktree", repoPath: sourceRepoPath, branch },
+		});
+		worktreePath = result.worktreePath;
+
+		// Sanity: this must be a REAL linked worktree — .git is a plain FILE, not
+		// a directory. This is the exact condition the original bug mishandled.
+		const gitStat = fs.lstatSync(join(worktreePath, ".git"));
+		expect(gitStat.isFile()).toBe(true);
+		expect(gitStat.isDirectory()).toBe(false);
+	});
+
+	it("does not throw scaffolding an external agent into the linked worktree", () => {
+		expect(() =>
+			scaffoldAgentMemory({
+				agentId,
+				agentName: "LinkedWT",
+				runtime: "claude",
+				userName: "Pat",
+				worktreePath,
+				external: true,
+			}),
+		).not.toThrow();
+	});
+
+	it("creates the .claude/skills symlink in the worktree", () => {
+		const skillsLink = join(worktreePath, ".claude", "skills");
+		expect(fs.existsSync(skillsLink)).toBe(true);
+		expect(fs.lstatSync(skillsLink).isSymbolicLink()).toBe(true);
+	});
+
+	it("writes .claude/skills into the repo's SHARED info/exclude (git-common-dir)", () => {
+		const commonDir = execFileSync(
+			"git",
+			["-C", worktreePath, "rev-parse", "--git-common-dir"],
+			{ encoding: "utf8" },
+		).trim();
+		const infoDir = commonDir.startsWith("/")
+			? join(commonDir, "info")
+			: join(worktreePath, commonDir, "info");
+		const exclude = readFileSync(join(infoDir, "exclude"), "utf8");
+		expect(exclude).toContain(".claude/skills");
 	});
 });
