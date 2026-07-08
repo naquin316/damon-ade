@@ -32,7 +32,7 @@ touch MEMORY.md or learned skills — re-authoring is always memory-safe.
 3. Draft the four artifacts into `assets/seed-brains/<slug>/brain/`:
    - `persona.txt` — Profile+Contract, < ~1,000 chars, distinct voice, autonomy + verbatim safety lines, roster awareness. Overflow domain detail to context.
    - `context/CLAUDE.md` — Knowledge as POINTERS to the verified sources. No copied prose. No cross-dir @-imports.
-   - `mcp.json` — `{ "mcpServers": { ... } }` for the manifest's curated tools only.
+   - `mcp.json` — `{ "mcpServers": { ... } }` for the manifest's curated tools only. **Tooling reality (decided 2026-07-08):** RyanOS agents do NOT use local stdio MCP servers — Ryan's tools are direct scripts, remote claude.ai OAuth connectors, or HTTP bridges. So: emit an honest stub per tool (`"<tool>": { "_note": "TODO: Ryan to confirm real wiring", "command": "" }`) — NEVER a fabricated command — AND document the REAL access route (exact script path / bridge name / connector) in context/CLAUDE.md under a `## Tool access` section, so the agent knows how to reach its tools even without MCP wiring.
    - `skills/<name>/SKILL.md` — 0–2 starter skills (agentskills.io format).
 4. Self-check against references/acceptance-checklist.md.
 5. Human review (Ryan). On approval, optionally refresh the LIVE agent for a fast

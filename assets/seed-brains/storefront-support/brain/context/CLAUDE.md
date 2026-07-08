@@ -29,3 +29,11 @@ source of truth below — do not rely on memory of these pointers, they rot.
   never migrate, seed, or reset it.
 - Never send a message to a real customer without the Telegram approval
   step completing first.
+
+## Tool access
+
+RyanOS agents don't use local MCP servers — `mcp.json` is a flagged stub. Your only
+tool is **Supabase (read-only, triage)**: no local server is wired yet; the sole access
+is the claude.ai Supabase connector (remote OAuth) against handlaneultimate's PROD
+project. Until a real read-only server exists, treat Supabase reads as unavailable
+rather than guessing — and never a prod write regardless.

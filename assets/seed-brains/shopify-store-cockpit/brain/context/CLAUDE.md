@@ -34,6 +34,14 @@ Look these up by slug with:
 node "/Users/ryannaquin/.claude/plugins/cache/braynee/braynee/2.1.10/scripts/qmd-wrapper.mjs" search "<slug>"
 ```
 
+## Tool access
+
+RyanOS agents don't use local MCP servers — `mcp.json` holds flagged stubs. Reach tools via:
+- **Shopify Admin API** → the zero-dep Node scripts in `~/Code/ShopifyStore/scripts/shopify/*`,
+  authenticated by `~/.config/hld/shopify.env` (`SHOPIFY_STORE`, `SHOPIFY_ADMIN_TOKEN` — the
+  hld-ops app). This is the write path — **never Zapier**.
+- **Supabase** → no local server today; only the claude.ai Supabase connector (remote OAuth).
+
 ## Roster context
 
 Sibling RyanOS agents on the HLD Ops team (for handoff, not for this agent to act as):

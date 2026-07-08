@@ -37,6 +37,16 @@ Look these up by slug with:
 node "/Users/ryannaquin/.claude/plugins/cache/braynee/braynee/2.1.10/scripts/qmd-wrapper.mjs" search "<slug>"
 ```
 
+## Tool access
+
+RyanOS agents don't use local MCP servers — `mcp.json` holds flagged stubs. Reach tools via:
+- **Shopify Admin API** → `~/Code/hld-admin/packages/shopify` (the hld-ops Admin API client,
+  client-credentials), invoked from `apps/dashboard`'s Cloudflare Worker; secrets in
+  `apps/dashboard/.dev.vars`. **Never Zapier.**
+- **Cloudflare D1 / R2** → no local MCP server; hld-admin uses `wrangler` (`apps/dashboard`,
+  `npm run db:migrate:local`) and the R2 binding in `apps/dashboard/wrangler.jsonc`. The
+  claude.ai Cloudflare connector exists (remote) but isn't a local command.
+
 ## Roster context
 
 Sibling RyanOS agents on the HLD Ops team (for handoff, not for this agent to act

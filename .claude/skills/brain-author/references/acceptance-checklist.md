@@ -13,6 +13,7 @@ context/CLAUDE.md (Knowledge):
 
 mcp.json:
 - [ ] Only the curated tools from manifest.tools; valid JSON; no stray creds.
+- [ ] Honest stubs (no fabricated commands); the REAL access route documented in context/CLAUDE.md `## Tool access`.
 
 skills/:
 - [ ] 0–2 starter skills, agentskills.io SKILL.md format, description ≤ 60 chars.
