@@ -1,4 +1,5 @@
 import { electronTrpc } from "renderer/lib/electron-trpc";
+import { DashboardTile } from "./DashboardTile";
 
 export function MissionControlView() {
 	const { data: dashboards = [] } =
@@ -23,18 +24,7 @@ export function MissionControlView() {
 					}}
 				>
 					{dashboards.map((dashboard) => (
-						// Task 3 replaces this placeholder with <DashboardTile dashboard={dashboard} />
-						<div
-							key={dashboard.id}
-							className="flex flex-col gap-1 rounded-lg border border-border/50 bg-background/50 p-3 text-sm"
-						>
-							<span className="font-medium text-foreground truncate">
-								{dashboard.name}
-							</span>
-							<span className="text-xs text-foreground/60 truncate">
-								{dashboard.url}
-							</span>
-						</div>
+						<DashboardTile key={dashboard.id} dashboard={dashboard} />
 					))}
 				</div>
 
