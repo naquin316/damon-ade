@@ -546,6 +546,29 @@ describe("scaffoldAgentMemory — external brain (no repo writes)", () => {
 	});
 });
 
+describe("scaffoldAgentMemory — import-safe composition (2B-1)", () => {
+	it("context/CLAUDE.md has NO cross-dir @-import", async () => {
+		const home = await import("./agent-home");
+		const { scaffoldAgentMemory } = await import("./agent-scaffold");
+		const { readFileSync } = await import("node:fs");
+		const { join } = await import("node:path");
+		const agentId = "agent-nocdimport";
+		const wt = join(process.env.ADE_HOME_DIR as string, "wt-nocd");
+		(await import("node:fs")).mkdirSync(wt, { recursive: true });
+		scaffoldAgentMemory({ agentId, agentName: "NoCD", runtime: "claude", userName: "Pat", worktreePath: wt, external: true });
+		const ctx = readFileSync(join(home.getAgentContextDir(agentId), "CLAUDE.md"), "utf8");
+		expect(ctx).not.toContain("@"); // no @-imports at all
+	});
+	it("persona.txt carries a Profile and a Contract section", async () => {
+		const home = await import("./agent-home");
+		const { readFileSync } = await import("node:fs");
+		const persona = readFileSync(home.getAgentPersonaPath("agent-nocdimport"), "utf8");
+		expect(persona).toContain("Profile");
+		expect(persona).toContain("Contract");
+		expect(persona.length).toBeLessThan(1024); // --append-system-prompt-file limit
+	});
+});
+
 describe("backfill on staged null-worktree agents (boot-hang regression)", () => {
 	// Repro of the boot dataset: many agents with worktree_id = NULL and no
 	// repos/agent-homes (staged demo data). Each must be SKIPPED (no worktree/

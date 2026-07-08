@@ -334,18 +334,40 @@ const CLAUDE_BRIDGE = `@{{agent_home}}/memory/AGENT.md
 <!-- MEMORY.md is loaded via Claude Code native auto-memory (autoMemoryDirectory). -->
 `;
 
-// External-brain bridge: lives under <agent-home>/context (loaded via --add-dir),
-// NOT in the repo worktree. @-imports the canonical memory by absolute path so the
-// real repo is never written to. Knowledge pointers (vault SSOT) are filled by 2B.
-const CONTEXT_CLAUDE_MD = `@{{agent_home}}/memory/AGENT.md
-@{{agent_home}}/memory/USER.md
+// Knowledge doc, loaded via --add-dir. SELF-CONTAINED — no cross-dir @-import
+// (those trip Claude Code's external-import trust prompt). The brain-author skill
+// (Phase 2B-2) fills these with POINTERS to the vault SSOT + repo docs, not copies.
+const CONTEXT_CLAUDE_MD = `# {{agent_name}} — Knowledge
 
-# Knowledge
-<!-- Pointers to the single source of truth (vault notes, repo docs). Filled by
-     the brain-author skill; do not duplicate knowledge here — point at it. -->
+## Domain
+- (What this agent must know about its domain. Filled by the brain-author skill;
+  point at the single source of truth, do not copy it.)
+
+## Sources of truth
+- (e.g. vault notes, repo docs — filled by the brain-author skill.)
 `;
 
-const PERSONA_TXT = `You are {{agent_name}}. Read and follow your operating brief and knowledge in the added context directory, and keep your persistent memory current per your write-back protocol.\n`;
+// Profile + Contract, injected via --append-system-prompt-file (a system-prompt
+// append, NOT an import — never prompts). Kept under ~1K chars. The brain-author
+// skill (2B-2) replaces this with an agent-specific persona; this is the default.
+const PERSONA_TXT = `You are {{agent_name}}, a specialist agent for {{user_name}}.
+
+## Profile
+- Direct, precise, proactive. You prize being genuinely useful over being verbose,
+  and you admit uncertainty. (The brain-author skill refines this per agent.)
+
+## Contract
+- Work only within your assigned workspace. Prefer small, verifiable changes and
+  run the project's checks before declaring done.
+- Drive: propose next actions rather than waiting to be told.
+- Never write secrets. Never take irreversible or production-affecting actions
+  without explicit confirmation. (Per-agent always/never rules filled by 2B-2.)
+
+## Memory
+- Keep your persistent memory (MEMORY.md, loaded automatically) current — save
+  learned preferences, facts, and lessons there, and turn reusable procedures into
+  skills. Do this proactively, not only when asked.
+`;
 
 // Claude Code Stop-hook script: the native analog of Hermes' post-turn
 // background review (agent/background_review.py). When the agent tries to stop,
@@ -486,9 +508,6 @@ export function scaffoldAgentMemory({
 			{
 				autoMemoryDirectory: memoryDir,
 				autoMemoryEnabled: true,
-				// Pre-authorize the external @imports so the "allow external
-				// CLAUDE.md imports?" prompt never fires for a launched agent.
-				permissions: { additionalDirectories: [agentHome] },
 				hooks: {
 					Stop: [
 						{
