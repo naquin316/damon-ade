@@ -120,8 +120,9 @@ describe("scaffoldAgentMemory — canonical layout", () => {
 		expect(proto).toContain("WHEN FULL");
 		expect(proto).toContain("Consolidate");
 		expect(proto).toContain("stops");
-		// Hermes char budgets as soft guidance.
-		expect(proto).toContain("1,375");
+		// Hermes char budget as soft guidance. USER.md's separate 1,375-char budget
+		// no longer applies (2B-1): preferences/facts now route to the single
+		// MEMORY.md file alongside everything else, under its 2,200-char target.
 		expect(proto).toContain("2,200");
 		// The ported self-improvement loop.
 		expect(proto).toContain("Session-end reflection");
@@ -566,6 +567,18 @@ describe("scaffoldAgentMemory — import-safe composition (2B-1)", () => {
 		expect(persona).toContain("Profile");
 		expect(persona).toContain("Contract");
 		expect(persona.length).toBeLessThan(1024); // --append-system-prompt-file limit
+	});
+});
+
+describe("scaffoldAgentMemory — write-back retarget (2B-1)", () => {
+	it("write-back protocol targets MEMORY.md + skills, not USER.md/AGENT.md", async () => {
+		const home = await import("./agent-home");
+		const { readFileSync } = await import("node:fs");
+		const { join } = await import("node:path");
+		const p = readFileSync(join(home.getAgentMemoryDir("agent-nocdimport"), ".writeback-protocol.md"), "utf8");
+		expect(p).toContain("MEMORY.md");
+		expect(p).toContain("skills");
+		expect(p).not.toContain("USER.md");
 	});
 });
 
