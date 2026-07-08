@@ -11,6 +11,7 @@ import { createExternalRouter } from "./external";
 import { createFilesystemRouter } from "./filesystem";
 import { createHotkeysRouter } from "./hotkeys";
 import { createMenuRouter } from "./menu";
+import { createMissionControlRouter } from "./mission-control";
 import { createNotificationsRouter } from "./notifications";
 import { createPermissionsRouter } from "./permissions";
 import { createPortsRouter } from "./ports";
@@ -49,6 +50,7 @@ export const createAppRouter = (getWindow: () => BrowserWindow | null) => {
 		uiState: createUiStateRouter(),
 		sync: createSyncRouter(),
 		ringtone: createRingtoneRouter(getWindow),
+		missionControl: createMissionControlRouter(),
 	});
 };
 
