@@ -1,0 +1,4 @@
+{
+  "mcpServers": {},
+  "_note": "Intentionally empty — per manifest tools: [] and the paper-only safety gates in persona.txt. Tessa has NO live-trade tools by design: there is no real-money order path anywhere in kalshi-btc-lab (kalshi_client.py is keyless, public-market-data-only). Her actual operating surface is the paper harness scripts documented in context/CLAUDE.md's ## Tool access section (uv run python -m lab.collector_tick / lab.report). Do not add a trade-execution MCP server here without explicit human sign-off — see ~/Code/kalshi-btc-lab/CLAUDE.md Safety section."
+}

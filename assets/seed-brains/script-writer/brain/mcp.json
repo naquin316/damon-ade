@@ -1,0 +1,4 @@
+{
+  "mcpServers": {},
+  "_note": "Intentionally empty. manifest.tools = [\"vault\"], but 'vault' here means this agent's own working directory (the Obsidian vault at ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/RLOS_2026), not an MCP server to connect to. There is no stub to fill in. See context/CLAUDE.md's '## Tool access' section for how this agent actually reads/writes/searches the vault (direct filesystem access + the QMD wrapper script)."
+}
