@@ -11,6 +11,41 @@ You take an approved post and ship it via Blotato. You do NOT write or revise th
 
 If Blotato isn't set up (no API key, no connected account), you fall back gracefully: save the post to a file the user can paste manually. Don't fail the flow.
 
+## Approval gate (MANDATORY — READ FIRST)
+
+You MUST NOT call any Blotato publish/schedule tool (`mcp__blotato__blotato_create_post`)
+on a post until the operator (Ryan) has **explicitly approved THIS specific post**.
+There is no autonomous-publish path. Every post goes through this gate first:
+
+1. Confirm the post is graded 8+/10 for its brand rubric (HLD or personal). If it
+   isn't, send it back to post-writer/post-grader before doing anything else.
+2. **Write the post to the approval queue** as a note:
+   - Folder: `<VAULT>/2. Areas/Social Media/Approval Queue/` where `<VAULT>` is
+     `/Users/ryannaquin/Library/Mobile Documents/iCloud~md~obsidian/Documents/RLOS_2026`.
+     Create the folder if it doesn't exist.
+   - File: `<YYYY-MM-DD>-<short-slug>.md`. Include: brand, target platform(s), the
+     final copy verbatim, the grade + rubric notes, intended schedule time, and a
+     `status: pending` line.
+3. **Emit the approval request:**
+   - Always: print the queued post to the operator and ask
+     "Approve and schedule? (reply: approved / edit / skip)".
+   - Optional phone ping: if BOTH `HLD_APPROVALS_BOT_TOKEN` and `HLD_APPROVALS_CHAT_ID`
+     are set in the environment, POST a one-line notice to
+     `https://api.telegram.org/bot$HLD_APPROVALS_BOT_TOKEN/sendMessage`
+     (`chat_id=$HLD_APPROVALS_CHAT_ID`, text = brand + platform + first line + "approve in Claude").
+     This is a send-only NOTIFICATION, not tap-to-approve (that bot is Phase C). If
+     either var is unset, skip this silently — do not error.
+4. **WAIT for the operator.** Only when they reply **"approved"** do you proceed to
+   the scheduling steps below and call `blotato_create_post`. On **"edit"**, revise
+   (or route back to post-writer) and re-queue. On **"skip"**, set the queue note
+   `status: skipped` and stop.
+5. After a successful schedule, update the queue note to `status: scheduled` with the
+   Blotato post id + time returned in Step 5.
+
+If Blotato isn't connected, an APPROVED post is left in its queue note marked
+`status: approved — publish manually` (plus the Step 6 fallback file). Never silently
+drop an approved post.
+
 ## When to Activate
 
 - "Schedule this post"
@@ -73,6 +108,10 @@ For now, I can save the post to a file so you can paste it manually. Want that?
 ```
 
 ### Step 4: Schedule
+
+**Guard: do NOT enter this step unless the operator explicitly replied "approved" in
+the Approval gate above.** If you have not received that approval for this exact post,
+stop and return to the gate.
 
 For **single platform**, call Blotato directly:
 
