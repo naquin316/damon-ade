@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ssh-trotec-bridge": {
+      "_note": "TODO (flagged, not fabricated): no MCP server named 'ssh-trotec-bridge' exists anywhere in ~/.claude.json. The only local ssh-mcp server configured (project scope /Users/ryannaquin) points at a DIFFERENT host — 192.168.86.43, user naquin316, key ~/.ssh/id_ed25519 — which is the 'core' box (zsh alias ask-core), not the Trotec laser PC. The Trotec laser PC (TROTEC-PC, 192.168.86.28) is reached today via two separate, non-MCP paths per vault memory and ~/.zshrc: (1) `ask-trotec` — a shell function that POSTs to a token-authed claude-bridge HTTP endpoint (http://192.168.86.28:8126/ask, allowed_tools=Read,Bash) — this is HTTP+token auth, NOT SSH, despite the manifest's tool name; (2) direct `ssh` (user naqui) used only by rubypulse/scripts/deploy.sh for build deploys. Neither is wired as an MCP server. Ryan to confirm which access path (if either) should become this agent's actual tool before this stub is filled in — do not invent a command.",
+      "command": ""
+    }
+  }
+}

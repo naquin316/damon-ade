@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "_note": "TODO: Ryan to confirm — no Supabase MCP server was found in ~/.claude.json (any scope) or ~/Code/handlaneultimate/.mcp.json as of this authoring pass. This is a flagged stub, not a working config. Wire up a real read-only Supabase MCP server (e.g. @supabase/mcp-server-supabase with a read-only service role / anon key scoped to handlaneultimate's PROD project) before this agent can actually triage conversations.",
+      "command": "",
+      "args": [],
+      "env": {}
+    }
+  }
+}

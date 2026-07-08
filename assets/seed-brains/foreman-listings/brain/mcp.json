@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "shopify-admin-api": {
+      "_note": "TODO: wire real Admin API MCP server — Ryan to confirm command/env. No local MCP server for this exists today; ~/Code/hld-admin talks to Shopify via packages/shopify (the hld-ops Admin API client, client-credentials), invoked from apps/dashboard's Cloudflare Worker with secrets in apps/dashboard/.dev.vars (SHOPIFY_STORE, SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET). Never point this at Zapier.",
+      "command": ""
+    },
+    "cloudflare-d1": {
+      "_note": "TODO: wire real Cloudflare D1 MCP server — Ryan to confirm command/env. Checked ~/.claude.json (top-level and all per-project mcpServers) and found no local stdio/http D1 server configured anywhere. The only D1 access found is the claude.ai remote OAuth connector (mcp__claude_ai_Cloudflare_Developer_Platform__d1_*), which isn't expressible as a local command here. hld-admin's own D1 access today is via wrangler (apps/dashboard, npm run db:migrate:local).",
+      "command": ""
+    },
+    "cloudflare-r2": {
+      "_note": "TODO: wire real Cloudflare R2 MCP server — Ryan to confirm command/env. Same gap as D1: no local stdio/http R2 server configured; only the claude.ai remote OAuth connector (mcp__claude_ai_Cloudflare_Developer_Platform__r2_*) exists, which isn't expressible as a local command here. hld-admin's R2 bucket is bound directly in apps/dashboard/wrangler.jsonc.",
+      "command": ""
+    }
+  }
+}

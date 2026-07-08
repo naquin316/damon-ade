@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "shopify-admin-api": {
+      "_note": "TODO: wire real Admin API MCP server — Ryan to confirm command/env. No local MCP server for this exists today; ~/Code/ShopifyStore currently talks to Shopify directly via zero-dep Node scripts in scripts/shopify/* using credentials at ~/.config/hld/shopify.env (SHOPIFY_STORE, SHOPIFY_ADMIN_TOKEN — the hld-ops app). Never point this at Zapier.",
+      "command": ""
+    },
+    "supabase": {
+      "_note": "TODO: wire real Supabase MCP server — Ryan to confirm command/env. Checked ~/.claude.json (top-level and all per-project mcpServers) and ~/Code/ShopifyStore/.mcp.json (absent) — no local stdio Supabase MCP server is configured anywhere. The only Supabase access found is a claude.ai remote OAuth connector (mcp__claude_ai_Supabase__*), which is not expressible as a local command.",
+      "command": ""
+    }
+  }
+}
