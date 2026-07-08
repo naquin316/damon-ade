@@ -3,14 +3,19 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import type { AgentRuntime } from "@superset/local-db";
 import {
 	getAgentCodexHome,
+	getAgentContextDir,
 	getAgentHome,
+	getAgentMcpPath,
 	getAgentMemoryDir,
+	getAgentPersonaPath,
+	getAgentSettingsPath,
 	getAgentWorktreePath,
 } from "./agent-home";
 
@@ -54,6 +59,15 @@ export interface ScaffoldParams {
 	 * git repo before passing it.
 	 */
 	worktreePath?: string;
+	/**
+	 * True for a real-repo agent (linked-worktree/direct source): the bridge
+	 * lives entirely under the external agent-home (context/CLAUDE.md,
+	 * persona.txt, settings.json, mcp.json) and NOTHING ADE-specific is written
+	 * into the worktree except a git-excluded .claude/skills symlink. Isolated
+	 * init/clone agents (default, false/undefined) keep the legacy in-worktree
+	 * bridge (CLAUDE.md, .claude/settings.json, opencode.json).
+	 */
+	external?: boolean;
 }
 
 function sub(
@@ -272,6 +286,19 @@ const CLAUDE_BRIDGE = `@{{agent_home}}/memory/AGENT.md
 <!-- MEMORY.md is loaded via Claude Code native auto-memory (autoMemoryDirectory). -->
 `;
 
+// External-brain bridge: lives under <agent-home>/context (loaded via --add-dir),
+// NOT in the repo worktree. @-imports the canonical memory by absolute path so the
+// real repo is never written to. Knowledge pointers (vault SSOT) are filled by 2B.
+const CONTEXT_CLAUDE_MD = `@{{agent_home}}/memory/AGENT.md
+@{{agent_home}}/memory/USER.md
+
+# Knowledge
+<!-- Pointers to the single source of truth (vault notes, repo docs). Filled by
+     the brain-author skill; do not duplicate knowledge here — point at it. -->
+`;
+
+const PERSONA_TXT = `You are {{agent_name}}. Read and follow your operating brief and knowledge in the added context directory, and keep your persistent memory current per your write-back protocol.\n`;
+
 // Claude Code Stop-hook script: the native analog of Hermes' post-turn
 // background review (agent/background_review.py). When the agent tries to stop,
 // this forces ONE review turn (decision:block feeds `reason` back to the model);
@@ -358,6 +385,7 @@ export function scaffoldAgentMemory({
 	userName,
 	role,
 	worktreePath: worktreePathOverride,
+	external,
 }: ScaffoldParams): void {
 	const agentHome = getAgentHome(agentId);
 	const memoryDir = getAgentMemoryDir(agentId);
@@ -394,22 +422,25 @@ export function scaffoldAgentMemory({
 	writeIfEmpty(join(skillsDir, "README.md"), sub(SKILLS_README, vars));
 	writeIfEmpty(join(skillsDir, "SKILL.template.md"), sub(SKILL_TEMPLATE, vars));
 
-	// Per-runtime bridge files in the worktree (point each CLI at canonical
-	// memory). Idempotent so we never clobber a bridge the user customized.
-	writeIfEmpty(join(worktreePath, "CLAUDE.md"), sub(CLAUDE_BRIDGE, vars));
-	const claudeDir = join(worktreePath, ".claude");
-	mkdirSync(claudeDir, { recursive: true });
-	// Session-reflection hook script + settings that wire it as a Stop hook and
-	// point native auto-memory at the canonical dir. Both are Claude-Code-only
-	// surfaces; harmless to the other runtimes.
-	const reflectHookPath = join(claudeDir, "reflect-on-stop.mjs");
-	writeIfEmpty(reflectHookPath, reflectHookScript(agentHome, resolvedUserName));
+	// External brain (loaded at launch via flags — never written into the repo).
+	// Written for every agent (external or not) since it's the eventual shared
+	// launch surface; only the LEGACY in-worktree bridge below is gated on
+	// `external` for backward compatibility with isolated init/clone agents.
+	const contextDir = getAgentContextDir(agentId);
+	mkdirSync(contextDir, { recursive: true });
+	const externalReflectHookPath = join(agentHome, "reflect-on-stop.mjs");
+	writeIfEmpty(externalReflectHookPath, reflectHookScript(agentHome, resolvedUserName));
+	writeIfEmpty(join(contextDir, "CLAUDE.md"), sub(CONTEXT_CLAUDE_MD, vars));
+	writeIfEmpty(getAgentPersonaPath(agentId), sub(PERSONA_TXT, vars));
 	writeIfEmpty(
-		join(claudeDir, "settings.json"),
+		getAgentSettingsPath(agentId),
 		`${JSON.stringify(
 			{
-				autoMemoryDirectory: join(memoryDir),
+				autoMemoryDirectory: memoryDir,
 				autoMemoryEnabled: true,
+				// Pre-authorize the external @imports so the "allow external
+				// CLAUDE.md imports?" prompt never fires for a launched agent.
+				permissions: { additionalDirectories: [agentHome] },
 				hooks: {
 					Stop: [
 						{
@@ -417,7 +448,7 @@ export function scaffoldAgentMemory({
 							hooks: [
 								{
 									type: "command",
-									command: `node ${JSON.stringify(reflectHookPath)}`,
+									command: `node ${JSON.stringify(externalReflectHookPath)}`,
 									timeout: 120,
 								},
 							],
@@ -429,44 +460,110 @@ export function scaffoldAgentMemory({
 			2,
 		)}\n`,
 	);
-	writeIfEmpty(
-		join(worktreePath, "opencode.json"),
-		`${JSON.stringify(
-			{
-				$schema: "https://opencode.ai/config.json",
-				instructions: [
-					"../memory/AGENT.md",
-					"../memory/USER.md",
-					"../memory/MEMORY.md",
-					"../memory/.writeback-protocol.md",
-				],
-			},
-			null,
-			2,
-		)}\n`,
-	);
+	writeIfEmpty(getAgentMcpPath(agentId), `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`);
 
-	// Keep the generated bridge files out of the repo (local, per-worktree).
-	// Guard against a duplicate block when re-run by the backfill.
-	const excludePath = join(worktreePath, ".git", "info", "exclude");
-	const excludeMarker = "# ADE agent bridge files (generated, not committed)";
+	// Per-agent skills must be discoverable by Claude Code (it can't load skills by
+	// flag): symlink <agent-home>/skills into <worktree>/.claude/skills. This is
+	// the ONE thing we add to a real (external) worktree; kept out of the repo
+	// via .git/info/exclude, never a tracked file.
+	const claudeDir = join(worktreePath, ".claude");
+	mkdirSync(claudeDir, { recursive: true });
+	const skillsLink = join(claudeDir, "skills");
+	if (!existsSync(skillsLink)) {
+		try {
+			symlinkSync(skillsDir, skillsLink, "dir");
+		} catch {
+			/* best-effort */
+		}
+	}
 	if (existsSync(join(worktreePath, ".git"))) {
-		mkdirSync(join(worktreePath, ".git", "info"), { recursive: true });
-		const existingExclude = existsSync(excludePath)
-			? readFileSync(excludePath, "utf8")
+		const infoDir = join(worktreePath, ".git", "info");
+		mkdirSync(infoDir, { recursive: true });
+		const skillsExcludePath = join(infoDir, "exclude");
+		const skillsMarker = "# ADE agent skills symlink (generated, not committed)";
+		const existingSkillsExclude = existsSync(skillsExcludePath)
+			? readFileSync(skillsExcludePath, "utf8")
 			: "";
-		if (!existingExclude.includes(excludeMarker)) {
-			appendFileSync(
-				excludePath,
-				`\n${excludeMarker}\n${BRIDGE_EXCLUDES.join("\n")}\n`,
-				"utf8",
-			);
+		if (!existingSkillsExclude.includes(skillsMarker)) {
+			appendFileSync(skillsExcludePath, `\n${skillsMarker}\n.claude/skills\n`, "utf8");
 		}
 	}
 
-	// Codex needs the concatenated bridge (it can't import). Generate it now;
-	// it is regenerated on each codex launch.
-	if (runtime === "codex") {
-		regenerateCodexAgentsMd(agentId);
+	// Non-external (isolated init/clone) agents keep the legacy in-worktree
+	// bridge for parity with the old behavior. External (real-repo) agents rely
+	// entirely on the external brain above and must never have ADE-specific
+	// files written into their worktree beyond the skills symlink.
+	if (!external) {
+		writeIfEmpty(join(worktreePath, "CLAUDE.md"), sub(CLAUDE_BRIDGE, vars));
+		// Session-reflection hook script + settings that wire it as a Stop hook and
+		// point native auto-memory at the canonical dir. Both are Claude-Code-only
+		// surfaces; harmless to the other runtimes.
+		const reflectHookPath = join(claudeDir, "reflect-on-stop.mjs");
+		writeIfEmpty(reflectHookPath, reflectHookScript(agentHome, resolvedUserName));
+		writeIfEmpty(
+			join(claudeDir, "settings.json"),
+			`${JSON.stringify(
+				{
+					autoMemoryDirectory: join(memoryDir),
+					autoMemoryEnabled: true,
+					hooks: {
+						Stop: [
+							{
+								matcher: "*",
+								hooks: [
+									{
+										type: "command",
+										command: `node ${JSON.stringify(reflectHookPath)}`,
+										timeout: 120,
+									},
+								],
+							},
+						],
+					},
+				},
+				null,
+				2,
+			)}\n`,
+		);
+		writeIfEmpty(
+			join(worktreePath, "opencode.json"),
+			`${JSON.stringify(
+				{
+					$schema: "https://opencode.ai/config.json",
+					instructions: [
+						"../memory/AGENT.md",
+						"../memory/USER.md",
+						"../memory/MEMORY.md",
+						"../memory/.writeback-protocol.md",
+					],
+				},
+				null,
+				2,
+			)}\n`,
+		);
+
+		// Keep the generated bridge files out of the repo (local, per-worktree).
+		// Guard against a duplicate block when re-run by the backfill.
+		const excludePath = join(worktreePath, ".git", "info", "exclude");
+		const excludeMarker = "# ADE agent bridge files (generated, not committed)";
+		if (existsSync(join(worktreePath, ".git"))) {
+			mkdirSync(join(worktreePath, ".git", "info"), { recursive: true });
+			const existingExclude = existsSync(excludePath)
+				? readFileSync(excludePath, "utf8")
+				: "";
+			if (!existingExclude.includes(excludeMarker)) {
+				appendFileSync(
+					excludePath,
+					`\n${excludeMarker}\n${BRIDGE_EXCLUDES.join("\n")}\n`,
+					"utf8",
+				);
+			}
+		}
+
+		// Codex needs the concatenated bridge (it can't import). Generate it now;
+		// it is regenerated on each codex launch.
+		if (runtime === "codex") {
+			regenerateCodexAgentsMd(agentId);
+		}
 	}
 }

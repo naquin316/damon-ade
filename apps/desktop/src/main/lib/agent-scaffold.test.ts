@@ -511,6 +511,34 @@ describe("resolveAgentWorktreePath — DB is the source of truth", () => {
 	});
 });
 
+describe("scaffoldAgentMemory — external brain (no repo writes)", () => {
+	it("writes the brain under agent-home and not into a real worktree", async () => {
+		const home = await import("./agent-home");
+		const { scaffoldAgentMemory } = await import("./agent-scaffold");
+		const { existsSync } = await import("node:fs");
+		const { join } = await import("node:path");
+
+		const agentId = "agent-ext";
+		// Simulate a real repo worktree we must NOT write into.
+		const realWorktree = join(process.env.ADE_HOME_DIR as string, "real-wt");
+		(await import("node:fs")).mkdirSync(realWorktree, { recursive: true });
+
+		scaffoldAgentMemory({
+			agentId, agentName: "Ext", runtime: "claude", userName: "Pat",
+			worktreePath: realWorktree, external: true,
+		});
+
+		// External brain exists…
+		expect(existsSync(join(home.getAgentContextDir(agentId), "CLAUDE.md"))).toBe(true);
+		expect(existsSync(home.getAgentPersonaPath(agentId))).toBe(true);
+		expect(existsSync(home.getAgentSettingsPath(agentId))).toBe(true);
+		expect(existsSync(home.getAgentMcpPath(agentId))).toBe(true);
+		// …and nothing ADE-specific was written into the real worktree.
+		expect(existsSync(join(realWorktree, "CLAUDE.md"))).toBe(false);
+		expect(existsSync(join(realWorktree, ".claude", "settings.json"))).toBe(false);
+	});
+});
+
 describe("backfill on staged null-worktree agents (boot-hang regression)", () => {
 	// Repro of the boot dataset: many agents with worktree_id = NULL and no
 	// repos/agent-homes (staged demo data). Each must be SKIPPED (no worktree/
