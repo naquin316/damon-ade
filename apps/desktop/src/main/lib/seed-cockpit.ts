@@ -1,4 +1,8 @@
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { projects, workspaces, worktrees } from "@superset/local-db";
+import type { AgentRepoSource } from "main/lib/agent-repo";
 import type { beginAgentInit } from "main/lib/agent-init";
 import { getAgentWorktreePath } from "main/lib/agent-home";
 import { localDb } from "main/lib/local-db";
@@ -12,18 +16,101 @@ export interface SeededAgent {
 	ctx: SeedCtx;
 }
 
+interface SeedAgentSpec {
+	name: string;
+	source: AgentRepoSource;
+}
+
+interface SeedTeamSpec {
+	name: string;
+	color: string;
+	agents: SeedAgentSpec[];
+}
+
+const CODE = (r: string) => join(homedir(), "Code", r);
+const VAULT = join(
+	homedir(),
+	"Library/Mobile Documents/iCloud~md~obsidian/Documents/RLOS_2026",
+);
+
 /** Ryan's default cockpit: five teams and their agents. All Claude runtime. */
-const SEED_TEAMS: Array<{ name: string; color: string; agents: string[] }> = [
+const SEED_TEAMS: SeedTeamSpec[] = [
 	{
 		name: "HLD Ops",
 		color: "#E11D48",
-		agents: ["Shopify / Store Cockpit", "RubyPulse / Laser", "Storefront Support"],
+		agents: [
+			{
+				name: "Shopify / Store Cockpit",
+				source: { type: "linked-worktree", repoPath: CODE("ShopifyStore"), branch: "ade/shopify" },
+			},
+			{
+				name: "Storefront Support",
+				source: { type: "linked-worktree", repoPath: CODE("handlaneultimate"), branch: "ade/storefront" },
+			},
+			{
+				name: "RubyPulse / Laser",
+				source: { type: "linked-worktree", repoPath: CODE("rubypulse"), branch: "ade/rubypulse" },
+			},
+			{
+				name: "Foreman / Listings",
+				source: { type: "linked-worktree", repoPath: CODE("hld-admin"), branch: "ade/foreman" },
+			},
+		],
 	},
-	{ name: "Hand Lane AI", color: "#7C3AED", agents: ["Consulting", "SaaS Build"] },
-	{ name: "Content / YouTube", color: "#EA580C", agents: ["Script Writer", "Clip Scout"] },
-	{ name: "Trading", color: "#16A34A", agents: ["Kalshi BTC / Tessa"] },
-	{ name: "Personal / RLOS", color: "#2563EB", agents: ["Daily Planner", "Code HQ / Portfolio"] },
+	{
+		name: "Hand Lane AI",
+		color: "#7C3AED",
+		agents: [
+			{ name: "Consulting", source: { type: "init" } },
+			{ name: "SaaS Build", source: { type: "init" } },
+		],
+	},
+	{
+		name: "Content / YouTube",
+		color: "#EA580C",
+		agents: [
+			{ name: "Script Writer", source: { type: "direct", path: VAULT } },
+			{ name: "Clip Scout", source: { type: "direct", path: VAULT } },
+		],
+	},
+	{
+		name: "Trading",
+		color: "#16A34A",
+		agents: [
+			{
+				name: "Kalshi BTC / Tessa",
+				source: { type: "linked-worktree", repoPath: CODE("kalshi-btc-lab"), branch: "ade/tessa" },
+			},
+		],
+	},
+	{
+		name: "Personal / RLOS",
+		color: "#2563EB",
+		agents: [
+			{ name: "Daily Planner", source: { type: "direct", path: VAULT } },
+			{
+				name: "Code HQ / Portfolio",
+				source: { type: "linked-worktree", repoPath: CODE(".codehq"), branch: "ade/codehq" },
+			},
+		],
+	},
 ];
+
+/**
+ * Resolve a seed agent's source, guarding against a `linked-worktree` whose
+ * real repo doesn't exist on this machine (Ryan's laptop may not have every
+ * repo checked out). A missing repo must not brick the whole seed — fall back
+ * to a plain `init` agent instead and log so it's visible.
+ */
+function resolveSource(agentName: string, source: AgentRepoSource): AgentRepoSource {
+	if (source.type === "linked-worktree" && !existsSync(source.repoPath)) {
+		console.warn(
+			`[seed-cockpit] "${agentName}": repo not found at ${source.repoPath}, seeding as init instead`,
+		);
+		return { type: "init" };
+	}
+	return source;
+}
 
 /**
  * Seed the default teams/agents if the DB has no Categories yet. Pure DB work —
@@ -49,8 +136,9 @@ export function seedDefaultCockpit(): SeededAgent[] {
 			.returning()
 			.get();
 
-		team.agents.forEach((agentName, agentIndex) => {
+		team.agents.forEach((agent, agentIndex) => {
 			const agentId = uuidv4();
+			const source = resolveSource(agent.name, agent.source);
 			const worktree = localDb
 				.insert(worktrees)
 				.values({
@@ -71,7 +159,7 @@ export function seedDefaultCockpit(): SeededAgent[] {
 					worktreeId: worktree.id,
 					type: "worktree",
 					branch: "main",
-					name: agentName,
+					name: agent.name,
 					runtime: "claude",
 					isUnnamed: false,
 					tabOrder: agentIndex,
@@ -83,9 +171,9 @@ export function seedDefaultCockpit(): SeededAgent[] {
 				ctx: {
 					categoryId: category.id,
 					worktreeId: worktree.id,
-					agentName,
+					agentName: agent.name,
 					runtime: "claude",
-					source: { type: "init" },
+					source,
 				},
 			});
 		});

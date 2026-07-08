@@ -132,6 +132,9 @@ async function runAgentInit(agentId: string): Promise<void> {
 				runtime: ctx.runtime,
 				userName: getUserName(),
 				worktreePath: resolveAgentWorktreePath(agentId, ctx.worktreeId),
+				external:
+					ctx.source.type === "linked-worktree" ||
+					ctx.source.type === "direct",
 			});
 		}
 

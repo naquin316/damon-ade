@@ -72,12 +72,16 @@ beforeAll(async () => {
 afterAll(() => rmSync(TEST_HOME, { recursive: true, force: true }));
 
 describe("seedDefaultCockpit", () => {
-	it("seeds 5 teams and 10 agents into an empty DB", () => {
-		const seeded = seedDefaultCockpit();
-		expect(seeded.length).toBe(10);
+	// Captured from the first (empty-DB) seed call — later calls are no-ops
+	// (idempotent), so subsequent tests read from this instead of re-seeding.
+	let firstSeed: ReturnType<typeof seedDefaultCockpit>;
+
+	it("seeds 5 teams and 11 agents into an empty DB", () => {
+		firstSeed = seedDefaultCockpit();
+		expect(firstSeed.length).toBe(11);
 		expect(localDb.select().from(projects).all().length).toBe(5);
-		expect(localDb.select().from(workspaces).all().length).toBe(10);
-		expect(localDb.select().from(worktrees).all().length).toBe(10);
+		expect(localDb.select().from(workspaces).all().length).toBe(11);
+		expect(localDb.select().from(worktrees).all().length).toBe(11);
 	});
 
 	it("gives every seeded agent the claude runtime and a worktree", () => {
@@ -86,10 +90,35 @@ describe("seedDefaultCockpit", () => {
 		expect(rows.every((w) => w.worktreeId != null)).toBe(true);
 	});
 
+	it("adds Foreman under HLD Ops as a linked-worktree agent", () => {
+		const rows = localDb.select().from(workspaces).all();
+		const foreman = rows.find((w) => String(w.name).includes("Foreman"));
+		expect(foreman).toBeDefined();
+	});
+
+	it("gives a linked-worktree agent its repoPath/branch source", () => {
+		const linked = firstSeed.find(
+			(a) => a.ctx.source.type === "linked-worktree",
+		);
+		expect(linked).toBeDefined();
+		if (linked && linked.ctx.source.type === "linked-worktree") {
+			expect(linked.ctx.source.repoPath.length).toBeGreaterThan(0);
+			expect(linked.ctx.source.branch.length).toBeGreaterThan(0);
+		}
+	});
+
+	it("gives a direct agent its path source", () => {
+		const direct = firstSeed.find((a) => a.ctx.source.type === "direct");
+		expect(direct).toBeDefined();
+		if (direct && direct.ctx.source.type === "direct") {
+			expect(direct.ctx.source.path.length).toBeGreaterThan(0);
+		}
+	});
+
 	it("is idempotent — re-seeding a populated DB is a no-op", () => {
 		const again = seedDefaultCockpit();
 		expect(again.length).toBe(0);
 		expect(localDb.select().from(projects).all().length).toBe(5);
-		expect(localDb.select().from(workspaces).all().length).toBe(10);
+		expect(localDb.select().from(workspaces).all().length).toBe(11);
 	});
 });
