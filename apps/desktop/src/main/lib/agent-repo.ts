@@ -65,16 +65,36 @@ export async function setupAgentRepo({
 	// The agent gets a real checkout on its own branch under <agent-home>/worktree;
 	// changes reach the real main only when the user reviews & merges the branch.
 	if (source.type === "linked-worktree") {
+		// Derive a per-agent unique branch name. `source.branch` alone is a fixed
+		// name per role (e.g. "ade/shopify"); if a prior agent's worktree
+		// registration for that branch still lingers on the real repo (e.g.
+		// ~/.ade was moved/re-seeded), `git worktree add -B <branch>` collides
+		// with "already used by worktree at ...". Suffixing with the agentId
+		// guarantees re-seeds and parallel agents on the same repo never clash.
+		const uniqueBranch = `${source.branch}-${agentId.slice(0, 8)}`;
+
 		if (existsSync(join(worktreePath, ".git"))) {
-			return { agentHome, worktreePath, memoryDir, branch: source.branch };
+			// Retry-safety: report the ACTUAL checked-out branch of the existing
+			// worktree (not just the derived name) so a retry reflects reality.
+			const branch =
+				(
+					await simpleGit(worktreePath)
+						.revparse(["--abbrev-ref", "HEAD"])
+						.catch(() => uniqueBranch)
+				).trim() || uniqueBranch;
+			return { agentHome, worktreePath, memoryDir, branch };
 		}
 		if (existsSync(worktreePath)) {
 			rmSync(worktreePath, { recursive: true, force: true });
 		}
 		const repo = simpleGit(source.repoPath);
+		// Prune stale worktree registrations whose directory is gone (the
+		// re-seed case) before adding a new one, so `worktree add` doesn't trip
+		// over a lingering registration for a branch we're about to reuse.
+		await repo.raw(["worktree", "prune"]);
 		// -B: create or reset the agent's branch; add the worktree at our path.
-		await repo.raw(["worktree", "add", "-B", source.branch, worktreePath]);
-		return { agentHome, worktreePath, memoryDir, branch: source.branch };
+		await repo.raw(["worktree", "add", "-B", uniqueBranch, worktreePath]);
+		return { agentHome, worktreePath, memoryDir, branch: uniqueBranch };
 	}
 
 	// Retry-safety: if a valid repo already exists (previous attempt got this
