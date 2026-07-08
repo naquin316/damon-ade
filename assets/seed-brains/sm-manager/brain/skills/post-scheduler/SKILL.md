@@ -1,6 +1,6 @@
 ---
 name: post-scheduler
-description: Schedule a finished social post to one or more platforms via the Blotato API. Handles single-platform and multi-platform scheduling, fetches connected accounts, applies a final pre-publish check, and returns scheduled time + post IDs. Triggers on "schedule this," "post this to [platform]," or as the final step in content-coach and post-writer flows. Falls back to saving the post as a copy-paste file if Blotato isn't configured.
+description: Schedule a finished post via Blotato
 argument-hint: "[post text or path] [platform(s)] [optional time]"
 allowed-tools: Read, Write, Edit, Glob, AskUserQuestion, mcp__blotato__blotato_list_accounts, mcp__blotato__blotato_create_post, mcp__blotato__blotato_get_post_status
 ---

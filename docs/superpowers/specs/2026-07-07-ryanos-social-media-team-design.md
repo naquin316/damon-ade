@@ -128,12 +128,13 @@ The `content-calendar` skill is the one net-new skill beyond the forked Blotato 
 ## 8. Build decomposition (phased for a fast first win)
 
 - **Phase A — prove the loop with a real HLD post (≈1 session):** download `blotato-content-pack.zip`; fork the edited skills; build `brand-brief-hld.md` from hld-admin's `brand-voice` + `product-facts`; wire the **HLD grader rubric** (§3a); author the **SM Manager** brain only; wire Blotato MCP + connect accounts; run **one real HLD store post end-to-end** through draft → grade (against the HLD rubric, not virality) → Telegram approval → Blotato schedule. Success = the post sounds like the craft-fair voice AND passes the gate. Proves the whole loop with one agent before scaling.
-- **Phase B — full crew:** add Repurposer + Strategist manifests/brains; wire the two brand briefs; run a manual "video → week of posts" batch through the gate.
+- **Phase B — full crew — SHIPPED 2026-07-08:** added the Repurposer + Strategist brains (`assets/seed-brains/{repurposer,strategist}/`, both with empty-stub `mcp.json` — no Blotato), the `brand-brief-personal` (Hand Lane AI, virality ON) + `content-calendar` skills, and wired two-brand switching into the SM Manager. Live-proven: personal post graded on the virality rubric, HLD post on the craft-fair rubric; one real long-form build-log → 3 LinkedIn + 5 X threads + 2 short-form scripts, each graded 8.3–8.9, all queued `pending` in the Approval Queue with zero un-approved publish. (Seed integration deferred to Phase C.)
 - **Phase C — automate:** Hermes weekly cron + Telegram approval digest; fold all three manifests into the 2B-2 seed so a re-seed boots the whole team brained.
 
 ## 9. Success criteria
 
 - Phase A: one HLD post drafted, graded 8+/10, approved via Telegram, and confirmed scheduled in Blotato — with zero ADE files written into any real repo and no un-approved publish possible.
+- Phase B (MET 2026-07-08): two-brand switching verified (personal → virality rubric, HLD → craft-fair rubric) and one long-form input turned into a graded week of posts (10 outputs, all 8+, all queued `pending`) behind the gate — draft/plan agents hold no Blotato, only the SM Manager publishes.
 - Phase C: a Sunday cron produces a full week of graded, queued posts across both brands from one long-form input, delivered as a single Telegram digest Ryan can approve in minutes.
 - ROI signal: Blotato is used every week (was previously idle/paid-for-nothing).
 
