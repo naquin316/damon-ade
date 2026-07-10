@@ -83,8 +83,10 @@ if [ "$LOCK_BEFORE" != "$LOCK_AFTER" ]; then
 fi
 
 # 5. Build (into release/; /Applications untouched until success).
+# gen:build-info MUST run first so the freshly pulled commit is baked into the app
+# (the explicit compile:app/package chain does not trigger the pre* hooks).
 log "building…"
-( cd "$DESKTOP" && bun run clean:dev && bun run compile:app && CSC_IDENTITY_AUTO_DISCOVERY=false bun run package ) >>"$LOG" 2>&1 \
+( cd "$DESKTOP" && bun run gen:build-info && bun run clean:dev && bun run compile:app && CSC_IDENTITY_AUTO_DISCOVERY=false bun run package ) >>"$LOG" 2>&1 \
   || fail "build failed"
 
 BUILT="$DESKTOP/release/mac-arm64/RyanOS.app"
