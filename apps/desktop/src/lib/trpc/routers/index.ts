@@ -1,5 +1,6 @@
 import type { BrowserWindow } from "electron";
 import { router } from "..";
+import { createAppInfoRouter } from "./app-info";
 import { createAuthRouter } from "./auth";
 import { createAutoUpdateRouter } from "./auto-update";
 import { createBrowserRouter } from "./browser/browser";
@@ -18,6 +19,7 @@ import { createPortsRouter } from "./ports";
 import { createProjectsRouter } from "./projects";
 import { createResourceMetricsRouter } from "./resource-metrics";
 import { createRingtoneRouter } from "./ringtone";
+import { createSelfUpdateRouter } from "./self-update";
 import { createSettingsRouter } from "./settings";
 import { createSyncRouter } from "./sync";
 import { createTerminalRouter } from "./terminal";
@@ -51,6 +53,8 @@ export const createAppRouter = (getWindow: () => BrowserWindow | null) => {
 		sync: createSyncRouter(),
 		ringtone: createRingtoneRouter(getWindow),
 		missionControl: createMissionControlRouter(),
+		appInfo: createAppInfoRouter(),
+		selfUpdate: createSelfUpdateRouter(),
 	});
 };
 
