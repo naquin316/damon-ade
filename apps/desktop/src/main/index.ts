@@ -24,6 +24,7 @@ import { SUPERSET_HOME_DIR } from "./lib/app-environment";
 import { initAppState } from "./lib/app-state";
 import { startAppStateWatcher } from "./lib/app-state/watcher";
 import { setupAutoUpdater } from "./lib/auto-updater";
+import { setupSelfUpdate } from "./lib/self-update";
 import { setWorkspaceDockIcon } from "./lib/dock-icon";
 import { loadWebviewBrowserExtension } from "./lib/extensions";
 import { localDb } from "./lib/local-db";
@@ -319,6 +320,7 @@ if (!gotTheLock) {
 		await makeAppSetup(() => MainWindow());
 		console.log("[main] boot: window created");
 		setupAutoUpdater();
+		setupSelfUpdate();
 		initTray();
 
 		// One-time: bring agents created before the memory scaffold was enabled
