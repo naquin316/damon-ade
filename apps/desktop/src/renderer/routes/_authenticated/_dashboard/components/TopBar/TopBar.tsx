@@ -8,6 +8,7 @@ import { OpenInMenuButton } from "./components/OpenInMenuButton";
 import { OrganizationDropdown } from "./components/OrganizationDropdown";
 import { ResourceConsumption } from "./components/ResourceConsumption";
 import { SidebarToggle } from "./components/SidebarToggle";
+import { VersionBadge } from "./components/VersionBadge";
 import { WindowControls } from "./components/WindowControls";
 
 export function TopBar() {
@@ -73,6 +74,7 @@ export function TopBar() {
 						projectId={workspace.project?.id}
 					/>
 				)}
+				<VersionBadge />
 				<OrganizationDropdown />
 				{!isMac && <WindowControls />}
 			</div>
