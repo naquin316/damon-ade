@@ -12,15 +12,20 @@ export const DEBUG_TERMINAL =
 	typeof localStorage !== "undefined" &&
 	localStorage.getItem("SUPERSET_TERMINAL_DEBUG") === "1";
 
-// Nerd Fonts first for shell theme compatibility (Oh My Posh, Powerlevel10k, etc.)
+// Nerd Fonts first for shell theme compatibility (Oh My Posh, Powerlevel10k, etc.).
+// FiraCode leads to match the terminal font used elsewhere (Ghostty/iTerm/cmux);
+// Meslo variants follow as fallbacks. Exact family names matter — xterm falls
+// through this list until one is installed, so a near-miss name (e.g. an
+// installed "MesloLG L DZ" vs the requested "MesloLGM") renders a different face.
 export const DEFAULT_TERMINAL_FONT_FAMILY = [
+	"FiraCode Nerd Font Mono",
+	"FiraCode Nerd Font",
+	"Hack Nerd Font",
+	"JetBrainsMono Nerd Font",
 	"MesloLGM Nerd Font",
 	"MesloLGM NF",
 	"MesloLGS NF",
 	"MesloLGS Nerd Font",
-	"Hack Nerd Font",
-	"FiraCode Nerd Font",
-	"JetBrainsMono Nerd Font",
 	"CaskaydiaCove Nerd Font",
 	"Menlo",
 	"Monaco",

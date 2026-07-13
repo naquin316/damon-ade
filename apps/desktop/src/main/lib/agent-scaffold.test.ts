@@ -188,6 +188,16 @@ describe("Claude Code session-reflection hook (Hermes learning-loop analog)", ()
 		expect(script).toContain('"block"');
 		expect(script).toContain("reason");
 	});
+
+	it("skips reflection on a trivial (single user turn) session", () => {
+		const wt = getAgentWorktreePath(agentId);
+		const script = readFileSync(join(wt, ".claude", "reflect-on-stop.mjs"), "utf8");
+		// Reads the transcript and bails on a lone user turn so quick one-shot
+		// commands don't force a reflection turn on every run.
+		expect(script).toContain("transcript_path");
+		expect(script).toContain("userTurns");
+		expect(script).toContain("userTurns <= 1");
+	});
 });
 
 describe("Claude Code bridge", () => {
