@@ -14,6 +14,7 @@ import { createHotkeysRouter } from "./hotkeys";
 import { createMenuRouter } from "./menu";
 import { createMissionControlRouter } from "./mission-control";
 import { createNotificationsRouter } from "./notifications";
+import { createOrchestratorRouter } from "./orchestrator";
 import { createPermissionsRouter } from "./permissions";
 import { createPortsRouter } from "./ports";
 import { createProjectsRouter } from "./projects";
@@ -55,6 +56,7 @@ export const createAppRouter = (getWindow: () => BrowserWindow | null) => {
 		missionControl: createMissionControlRouter(),
 		appInfo: createAppInfoRouter(),
 		selfUpdate: createSelfUpdateRouter(),
+		orchestrator: createOrchestratorRouter(),
 	});
 };
 
