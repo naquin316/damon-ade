@@ -47,6 +47,14 @@ const sleep = (ms: number) =>
 const cancelledRuns = new Set<string>();
 
 /**
+ * run_ids with a `runToCompletion` loop currently in flight. Guards against
+ * `approvePlan`/`retryNode` starting a second loop for the same run (e.g. a
+ * double-click or a retry race), which would spawn duplicate agent panes and
+ * have two loops writing/clobbering the same manifest concurrently.
+ */
+const activeRuns = new Set<string>();
+
+/**
  * slug (seed-brain slug, e.g. "foreman-listings") -> workspace/agent id.
  * Re-queried per call rather than cached — the roster of agent workspaces
  * can change between dispatches within a long-running orchestration.
@@ -120,6 +128,13 @@ async function pollForPlan(
  *  return immediately; progress streams over `watchRun`). */
 function startRunLoop(run: RunManifest): void {
 	const runId = run.run_id;
+	if (activeRuns.has(runId)) {
+		console.warn(
+			`[orchestrator] run ${runId} already has a loop in flight; refusing to start a second one`,
+		);
+		return;
+	}
+	activeRuns.add(runId);
 	cancelledRuns.delete(runId);
 	void runToCompletion(run, {
 		dispatch: (n) => {
@@ -163,6 +178,9 @@ function startRunLoop(run: RunManifest): void {
 		const message = error instanceof Error ? error.message : String(error);
 		console.error(`[orchestrator] run ${runId} loop error:`, message);
 		emit({ type: "run-error", runId, message });
+	})
+	.finally(() => {
+		activeRuns.delete(runId);
 	});
 }
 
