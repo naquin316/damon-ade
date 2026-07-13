@@ -7,6 +7,7 @@ import { NavigationControls } from "./components/NavigationControls";
 import { OpenInMenuButton } from "./components/OpenInMenuButton";
 import { OrganizationDropdown } from "./components/OrganizationDropdown";
 import { ResourceConsumption } from "./components/ResourceConsumption";
+import { RunBoardButton } from "./components/RunBoardButton";
 import { SidebarToggle } from "./components/SidebarToggle";
 import { VersionBadge } from "./components/VersionBadge";
 import { WindowControls } from "./components/WindowControls";
@@ -34,6 +35,7 @@ export function TopBar() {
 				<NavigationControls />
 				<ResourceConsumption />
 				<MissionControlButton />
+				<RunBoardButton />
 			</div>
 
 			{workspace?.project?.name && (
