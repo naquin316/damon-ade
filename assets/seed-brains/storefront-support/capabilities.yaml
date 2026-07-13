@@ -1,0 +1,9 @@
+team: HLD Ops
+agent: storefront-support
+handles:
+  - triage Hand Lane Designs customer channels (storefront chat + Facebook Messenger) via read-only Supabase
+  - summarize customer intent and propose a draft reply
+  - stop and wait — a human approves in Telegram before any reply reaches a real customer
+needs: []
+emits: []
+gate: telegram-approval-send

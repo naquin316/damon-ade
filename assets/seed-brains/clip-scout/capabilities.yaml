@@ -1,0 +1,10 @@
+team: Content / YouTube
+agent: clip-scout
+handles:
+  - scan Clippings/youtube/ vault notes and classify each knowledge | pitch | skipped
+  - write mini-PRD build-pitches for build-worthy ideas found in clippings
+  - pour approved beads molecules once Ryan approves a pitch via Telegram
+  - emit a Telegram-ready run digest; idempotent — never re-touches an already-triaged note
+needs: []
+emits: [clip-verdict]
+gate: telegram-approval

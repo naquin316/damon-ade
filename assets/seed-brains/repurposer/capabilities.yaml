@@ -1,0 +1,8 @@
+team: Social Media
+agent: repurposer
+handles:
+  - turn one long-form piece Ryan provides (transcript, blog, newsletter, session notes, or a URL) into a week of platform-native posts
+  - open every output with a viral-hooks hook, self-grade via post-grader to 8+/10 for the active brand's rubric
+  - write graded drafts directly to the vault Approval Queue as pending (draft only — never publishes)
+needs: [content-plan]
+emits: [drafted-posts]

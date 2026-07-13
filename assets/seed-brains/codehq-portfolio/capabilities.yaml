@@ -1,0 +1,8 @@
+team: Personal / RLOS
+agent: codehq-portfolio
+handles:
+  - orientation and recall across ~/Code — what exists, live vs. dormant, what was last touched, what's drifted
+  - reason over Code HQ's generated outputs (PROJECTS.md, projects.json, dashboard.html, per-repo STATUS.md/CLAUDE.md)
+  - trigger a fresh codehq scan, or scaffold a new project's STATUS.md stub, with Ryan's explicit go-ahead
+needs: []
+emits: []

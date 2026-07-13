@@ -1,0 +1,8 @@
+team: HLD Ops
+agent: rubypulse-laser
+handles:
+  - read-only analytics and live monitoring for the Trotec Ruby (Speedy 360) laser
+  - report machine/job state, telemetry, maintenance signals, and alerts
+  - never operates, configures, or sends control commands to the laser — structurally out of scope
+needs: []
+emits: []

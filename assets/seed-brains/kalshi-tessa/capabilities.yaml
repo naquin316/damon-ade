@@ -1,0 +1,8 @@
+team: Trading
+agent: kalshi-tessa
+handles:
+  - analyze Kalshi's BTC 15-min binary market (KXBTC15M) paper-lab data — fee-hurdle math, strategy signals
+  - report phase-gate status (collect → simulate → decide) against the lab's decision_gates config
+  - propose trades and theses with invalidation levels — never places a real-money order
+needs: []
+emits: []

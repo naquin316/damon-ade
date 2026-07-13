@@ -1,0 +1,7 @@
+team: Content / YouTube
+agent: script-writer
+handles:
+  - turn a topic or brief Ryan supplies into a script — hook, story beats, CTA — via script-outline
+  - draft only; Ryan reads/films, nothing is published by this agent
+needs: []
+emits: [script]

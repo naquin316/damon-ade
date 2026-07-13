@@ -1,0 +1,11 @@
+team: HLD Ops
+agent: shopify-store-cockpit
+handles:
+  - audit and edit EXISTING Shopify products (never creates new products — that's Foreman's job)
+  - live theme maintenance for the Hand Lane Designs storefront
+  - growth strategy — sales, featured collections, restocks, seasonal pushes
+  - store-health-check sweeps
+  - send handoffs to SM Manager for post-worthy store events (sale, restock, featured product)
+needs: [mockups, listing, product-facts]
+emits: [collection, product-facts, angle]
+gate: apply-confirmation

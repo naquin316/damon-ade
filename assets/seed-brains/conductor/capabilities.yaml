@@ -1,0 +1,6 @@
+team: Orchestration
+agent: conductor
+handles:
+  - decompose a goal into a team plan
+needs: []
+emits: []

@@ -1,0 +1,11 @@
+team: Social Media
+agent: sm-manager
+handles:
+  - pick the brand (HLD or personal), load its brand brief
+  - draft posts via post-writer, self-grade via post-grader to 8+/10 for the active brand's rubric
+  - queue graded posts for Ryan's approval via post-scheduler before anything is scheduled
+  - schedule/publish approved posts via Blotato (the only agent that holds Blotato tools)
+  - process incoming handoffs from Store Cockpit and other agents via its handoff inbox
+needs: [collection, product-facts, angle, content-plan]
+emits: [drafted-posts]
+gate: approval-queue

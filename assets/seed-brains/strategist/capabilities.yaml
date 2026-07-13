@@ -1,0 +1,9 @@
+team: Social Media
+agent: strategist
+handles:
+  - plan the WEEK per brand — themes, angles, product/long-form mix, which posting slots to fill
+  - write the weekly plan to the vault Content Calendar folder via the content-calendar skill
+  - flag gaps (empty slots) and keep both brand briefs current
+  - route repurpose-worthy items to the Repurposer and fresh-write items to SM Manager (never publishes itself)
+needs: []
+emits: [content-plan, angle]

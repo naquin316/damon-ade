@@ -1,0 +1,11 @@
+team: HLD Ops
+agent: foreman-listings
+handles:
+  - mockup-engine compositing for brand-new HLD product listings
+  - Claude-drafted listing copy (title, description, tags) via hld-admin's brand-voice/product-facts skills
+  - human review queue before any live publish
+  - live publish to Shopify via the hld-ops Admin API app (never Zapier)
+  - listing-qa-sweep checks on drafted listings
+needs: []
+emits: [mockups, listing, product-facts]
+gate: publish-apply-confirmation

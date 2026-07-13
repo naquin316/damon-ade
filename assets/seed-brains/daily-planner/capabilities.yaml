@@ -1,0 +1,8 @@
+team: Personal / RLOS
+agent: daily-planner
+handles:
+  - run the morning ritual — load yesterday's note + priorities, surface today's ONE thing, write today's note
+  - run the evening ritual — reflect, route captures, flag carry-forwards
+  - stay aware of the vault's weekly/monthly/quarterly review cadence without owning that work itself
+needs: []
+emits: []
