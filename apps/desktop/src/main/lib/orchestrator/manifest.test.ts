@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeManifest, readManifest } from "./manifest";
+import { runPath } from "./paths";
 import type { RunManifest } from "shared/orchestrator/types";
 
 const run: RunManifest = {
@@ -23,4 +25,12 @@ test("writeManifest then readManifest round-trips", () => {
 test("readManifest returns null for an unknown run", () => {
 	const vault = mkdtempSync(join(tmpdir(), "orch-"));
 	expect(readManifest(vault, "nope")).toBeNull();
+});
+
+test("readManifest returns null (does not throw) for a corrupt run file", () => {
+	const vault = mkdtempSync(join(tmpdir(), "orch-"));
+	const p = runPath(vault, "bad");
+	mkdirSync(dirname(p), { recursive: true });
+	writeFileSync(p, "---\nrun_id: [oops\n---\nx");
+	expect(readManifest(vault, "bad")).toBeNull();
 });
