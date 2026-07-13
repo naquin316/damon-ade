@@ -17,8 +17,9 @@ export function stepRun(
 	let nodes = run.nodes.map((n) => ({ ...n }));
 
 	// 1) Collect running nodes (done / failed / timeout).
-	for (const n of nodes) {
-		if (n.status !== "running") continue;
+	for (const id of nodes.map((x) => x.id)) {
+		const n = nodes.find((x) => x.id === id);
+		if (!n || n.status !== "running") continue;
 		const s = deps.pollStatus(n);
 		if (s && DONE_STATUSES.has(s.status)) {
 			n.status = "done";
@@ -27,7 +28,11 @@ export function stepRun(
 			n.status = "failed";
 			nodes = applyFailureSkips(nodes, n.id);
 		} else {
-			const started = dispatchedAt.get(n.id) ?? deps.now();
+			let started = dispatchedAt.get(n.id);
+			if (started === undefined) {
+				started = deps.now();
+				dispatchedAt.set(n.id, started);
+			}
 			if (deps.now() - started >= timeoutMs) {
 				n.status = "failed";
 				nodes = applyFailureSkips(nodes, n.id);

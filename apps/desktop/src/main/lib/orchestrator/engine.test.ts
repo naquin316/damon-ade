@@ -56,6 +56,49 @@ test("stepRun times out a stuck running node and skips its dependents", () => {
 	expect(out.nodes.find((n) => n.id === "n2")!.status).toBe("skipped");
 });
 
+test("stepRun fails a rejected running node and skips its dependent", () => {
+	const running: RunManifest = {
+		...base,
+		nodes: base.nodes.map((n) => n.id === "n1" ? { ...n, status: "running", handoff_id: "h1" } : n),
+	};
+	const deps: EngineDeps = {
+		dispatch: () => ({ ok: true }),
+		pollStatus: (n) => n.id === "n1" ? { status: "rejected", result: null } : null,
+		now: () => 0,
+		onUpdate: () => {},
+	};
+	const out = stepRun(running, deps, 60_000, new Map([["n1", 0]]));
+	expect(out.nodes.find((n) => n.id === "n1")!.status).toBe("failed");
+	expect(out.nodes.find((n) => n.id === "n2")!.status).toBe("skipped");
+});
+
+test("stepRun backfills a missing dispatchedAt entry instead of resetting the clock every tick", () => {
+	const running: RunManifest = {
+		...base,
+		nodes: base.nodes.map((n) => n.id === "n1" ? { ...n, status: "running", handoff_id: "h1" } : n),
+	};
+	const dispatchedAt = new Map<string, number>(); // simulates a restart: no in-memory entry for the running node
+	let currentTime = 0;
+	const deps: EngineDeps = {
+		dispatch: () => ({ ok: true }),
+		pollStatus: () => ({ status: "pending", result: null }), // never done
+		now: () => currentTime,
+		onUpdate: () => {},
+	};
+
+	// First tick: clock just started (backfilled), so it must NOT fail yet.
+	const first = stepRun(running, deps, 60_000, dispatchedAt);
+	expect(first.nodes.find((n) => n.id === "n1")!.status).toBe("running");
+	expect(dispatchedAt.get("n1")).toBe(0);
+
+	// Advance time past the timeout and step again, reusing the same dispatchedAt map
+	// so the backfilled entry persists (proving the node can no longer hang forever).
+	currentTime = 60_000;
+	const second = stepRun(first, deps, 60_000, dispatchedAt);
+	expect(second.nodes.find((n) => n.id === "n1")!.status).toBe("failed");
+	expect(second.nodes.find((n) => n.id === "n2")!.status).toBe("skipped");
+});
+
 test("finalize marks partial when any node failed, done otherwise", () => {
 	const failed = { ...base, nodes: base.nodes.map((n) => ({ ...n, status: "failed" as const })) };
 	expect(finalize(failed).status).toBe("partial");
