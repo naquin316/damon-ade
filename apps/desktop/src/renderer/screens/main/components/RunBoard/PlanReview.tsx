@@ -6,6 +6,7 @@ import {
 	useCancelRun,
 } from "renderer/react-query/orchestrator/hooks";
 import type { RunManifest, RunNode } from "shared/orchestrator/types";
+import { RunGraph } from "./RunGraph";
 
 interface PlanReviewProps {
 	run: RunManifest;
@@ -49,15 +50,56 @@ export function PlanReview({ run, onApproved, onCancelled }: PlanReviewProps) {
 	};
 
 	return (
-		<div className="flex flex-col gap-3 p-3 border-b border-border/50">
-			<div className="flex items-center justify-between">
-				<span className="text-sm font-medium text-foreground">
-					Review plan for: {run.goal}
-				</span>
-				<span className="text-xs text-foreground/40">{nodes.length} nodes</span>
+		<div className="flex-1 flex flex-col overflow-y-auto border-b border-border/50">
+			{/* Always-reachable action bar — pinned above the scrolling preview
+			 * and edit list so Approve/Cancel never end up buried below a long
+			 * plan (the whole point of this layout). */}
+			<div className="sticky top-0 z-10 flex flex-col gap-2 border-b border-border/50 bg-card/95 px-3 pt-3 pb-2 backdrop-blur-sm">
+				<div className="flex items-center justify-between gap-3">
+					<span className="text-sm font-medium text-foreground truncate">
+						Review plan for: {run.goal}
+					</span>
+					<span className="text-xs text-foreground/40 shrink-0">
+						{nodes.length} nodes
+					</span>
+				</div>
+
+				<div className="flex items-center gap-2">
+					<Button
+						onClick={handleApprove}
+						disabled={approvePlan.isPending || nodes.length === 0}
+					>
+						{approvePlan.isPending ? "Approving…" : "Approve"}
+					</Button>
+					<Button
+						variant="outline"
+						onClick={handleCancel}
+						disabled={cancelRun.isPending}
+					>
+						Cancel
+					</Button>
+				</div>
+
+				{approvePlan.isError && (
+					<span className="text-xs text-destructive">
+						{approvePlan.error instanceof Error
+							? approvePlan.error.message
+							: "Failed to approve plan"}
+					</span>
+				)}
 			</div>
 
-			<div className="flex flex-col gap-2">
+			{/* Live shape preview — read-only (no retry affordance makes sense
+			 * pre-approval; every node is still "pending"), driven by the same
+			 * edit buffer as the list below so removing a node updates both. */}
+			<div className="overflow-x-auto p-4">
+				<RunGraph nodes={nodes} />
+			</div>
+
+			<div className="flex flex-col gap-2 px-3 pb-3">
+				<span className="text-[10px] font-medium uppercase tracking-wide text-foreground/40">
+					Edit tasks
+				</span>
 				{nodes.map((node) => (
 					<div
 						key={node.id}
@@ -96,30 +138,6 @@ export function PlanReview({ run, onApproved, onCancelled }: PlanReviewProps) {
 					</span>
 				)}
 			</div>
-
-			<div className="flex items-center gap-2">
-				<Button
-					onClick={handleApprove}
-					disabled={approvePlan.isPending || nodes.length === 0}
-				>
-					{approvePlan.isPending ? "Approving…" : "Approve"}
-				</Button>
-				<Button
-					variant="outline"
-					onClick={handleCancel}
-					disabled={cancelRun.isPending}
-				>
-					Cancel
-				</Button>
-			</div>
-
-			{approvePlan.isError && (
-				<span className="text-xs text-destructive">
-					{approvePlan.error instanceof Error
-						? approvePlan.error.message
-						: "Failed to approve plan"}
-				</span>
-			)}
 		</div>
 	);
 }
