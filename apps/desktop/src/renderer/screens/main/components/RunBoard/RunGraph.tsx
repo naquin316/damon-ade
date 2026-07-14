@@ -55,7 +55,7 @@ interface Point {
  * referencing itself or a missing upstream id degrades to layer 0 instead of
  * infinite-looping.
  */
-function computeLayers(nodes: RunNode[]): Map<string, number> {
+export function computeLayers(nodes: RunNode[]): Map<string, number> {
 	const byId = new Map(nodes.map((n) => [n.id, n]));
 	const layer = new Map<string, number>();
 	const visiting = new Set<string>();
