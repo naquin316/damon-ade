@@ -341,6 +341,67 @@ const sdkPollStatus: EngineDeps["pollStatus"] = (node) => live.get(node.id) ?? n
 - `query()` still spawns a subprocess per call — keep `ORCH_MAX_CONCURRENT`.
 - New dependency + fast-moving version surface.
 
+### SPIKE RESULT (2026-07-14) — ran it. Verdict: **NOT YET. Two blockers.**
+
+Rather than build the transport and A/B it, the two questions that decide the port were
+answered directly by a ~$0.81 probe against the real SDK (0.3.209) with sm-manager's
+actual `mcp.json`. Everything below is *measured*, not read.
+
+**What works — better than hoped:**
+
+| Claim | Measured |
+|---|---|
+| Auth / billing | `accountInfo()` → `{ subscriptionType: "Claude Max", apiProvider: "firstParty" }`. **The SDK reused the CLI's subscription. No API key, no billing change.** |
+| 1M context without `[1m]` | `modelUsage["claude-opus-4-8"].contextWindow` = **1000000**. Open question closed: pass the bare id, keep the window. |
+| Structured output | `outputFormat: {type:'json_schema'}` → `subtype: "success"` + a schema-valid `structured_output` object. Feature 2a/2b really are free. |
+| Per-node cost | `total_cost_usd: 0.5476935` + full `modelUsage` breakdown. Phase 5.2's cost visibility is a property read, not a project. |
+
+**Blocker 1 — Blotato's OAuth does NOT survive the port.**
+Init reported `{"name":"blotato","status":"needs-auth"}` and **`blotato tools exposed: []`**.
+The agent's own words: *"This session is non-interactive, so the OAuth flow cannot be run
+here."* sm-manager is the only agent holding Blotato and Blotato is the only thing that
+publishes — so **the one agent whose port would matter is the one agent that cannot port.**
+This directly refutes this spec's "Seed-brains keep … MCP (Blotato stays wired)".
+
+**Blocker 2 — MCP isolation is UNACHIEVABLE, and it's a blast-radius regression.**
+The probe passed `mcpServers: { blotato }` — exactly one server. The session came up with
+**30**: chrome-devtools, firecrawl, linear, outline, Gmail, Google Drive, Google Calendar,
+Supabase, Cloudflare, **Zapier (which holds Shopify WRITE tools)**…
+
+`settingSources: []` cut it to **16** — still 15 unrequested `claude.ai *` connectors. They
+are **account-level remote connectors, not local settings**, so they ride along with the
+subscription auth itself. There is no documented way to refuse them.
+
+That is the sting: **the two properties are coupled.** Subscription billing (Blocker-1's
+consolation, and the reason the port looked cheap) is exactly what drags in the account's
+connectors. You cannot take one without the other.
+
+Today `--strict-mcp-config` guarantees an agent sees *only* its own `mcp.json` — that flag
+is load-bearing, and it has **no SDK equivalent**. Port the fleet and every agent silently
+gains ~15 tools its brain never granted and its persona never mentions, while running
+`permissionMode: 'bypassPermissions'`. A repurposer whose `mcp.json` is deliberately an
+*empty stub* ("You have NO live tools") would come up holding Gmail and Zapier. That is not
+a port; it's a quiet privilege escalation across the whole fleet.
+
+**Bonus finding — the leak is not just unsafe, it's expensive.** A one-word "reply ok"
+prompt cost **$0.26**, and the real probe **$0.55**, almost entirely tool-definition bloat
+(49k cache-creation tokens). At 12 agents that's ~$6.60 a run before any work happens.
+Ironic, given Phase 5.2 wants the port *for* cost visibility.
+
+**Verdict: do not port yet.** Not because the SDK is bad — its output/cost/session story is
+strictly better — but because it cannot express *"this agent gets exactly these tools"*,
+which the current transport does for free and which the whole fleet's safety rests on.
+
+**What would unblock it**, in order:
+1. A way to hard-scope MCP servers per `query()` (an SDK `strictMcpConfig` equivalent, or
+   account-connector opt-out). Without this, nothing else matters.
+2. A non-interactive auth path for OAuth HTTP MCPs (a Blotato API key would also do it, and
+   is worth asking Blotato for — it would decouple this entirely).
+3. Then, and only then, the A/B — starting with **sm-manager**, not a trivial agent.
+
+Reusable probe: `scratchpad/sdk-probe/` (kept out of the repo; the SDK is deliberately NOT
+a dependency yet).
+
 ### Migration (low-risk, behind a flag)
 ```ts
 const dispatchDeps = process.env.ORCH_TRANSPORT === "sdk" ? sdkDeps : fileDeps;
@@ -375,16 +436,22 @@ run; treat the SDK port as the high-upside transport upgrade with no agent rewri
 - ~~Does porting change the billing model?~~ **No.** The SDK reuses an existing
   `claude`-CLI authentication automatically.
 
-**Still open, in priority order:**
-1. **Does an OAuth'd HTTP MCP (Blotato) survive the port?** Blocking. If not, sm-manager
-   — the only agent that can publish — cannot move, and the "no agent rewrite" premise
-   fails at the one place it matters. Spike a Blotato-holding agent FIRST.
-2. Is `claude-opus-4-8` still 1M without the `[1m]` suffix? Measure, don't assume.
-3. `--strict-mcp-config` has no SDK equivalent. Does omitting `settingSources` give
-   equivalent isolation, or do stray user-scope MCP servers leak into orchestrated runs?
-4. Keep writing vault handoff notes in parallel under the SDK transport (audit trail) or
+**Answered by the spike (probe, same day) — see SPIKE RESULT above:**
+- ~~Does an OAuth'd HTTP MCP (Blotato) survive the port?~~ **No.** `status: needs-auth`,
+  zero blotato tools exposed. Blocker 1.
+- ~~Is `claude-opus-4-8` still 1M without `[1m]`?~~ **Yes** — measured `contextWindow:
+  1000000`.
+- ~~Does omitting `settingSources` give isolation equivalent to `--strict-mcp-config`?~~
+  **No, and neither does `settingSources: []`.** 30 servers leaked, 16 with `[]`. Account
+  connectors are inseparable from subscription auth. Blocker 2.
+
+**Still open:**
+1. Can MCP servers be hard-scoped per `query()` at all? (Blocks everything.)
+2. Non-interactive auth for an OAuth HTTP MCP — or ask Blotato for an API key, which
+   would sidestep it entirely and is cheap to try.
+3. Keep writing vault handoff notes in parallel under the SDK transport (audit trail) or
    drop them for orchestrated runs?
-5. `emit_schema` granularity: per-capability JSON schema vs. a lightweight required-keys
+4. `emit_schema` granularity: per-capability JSON schema vs. a lightweight required-keys
    check to start?
 
 ## Non-goals
