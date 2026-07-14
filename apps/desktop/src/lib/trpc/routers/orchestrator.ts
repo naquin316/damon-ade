@@ -150,6 +150,7 @@ function startRunLoop(run: RunManifest): void {
 				handoffId,
 				runId,
 				task: n.task,
+				created: new Date().toISOString().slice(0, 10),
 			});
 			return dispatchAgent(
 				realDispatchDeps,

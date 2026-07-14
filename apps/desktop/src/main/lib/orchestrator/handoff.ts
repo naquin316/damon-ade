@@ -3,22 +3,38 @@ import { join } from "node:path";
 import { splitFrontmatter, joinFrontmatter } from "./frontmatter";
 import { handoffInbox } from "./paths";
 
+// Matches a leading YYYY-MM-DD date prefix (e.g. handoff ids built as
+// `<date>-<event>-<handle>` per the handoff SKILL's SEND convention).
+const DATE_PREFIX = /^\d{4}-\d{2}-\d{2}/;
+
 export function writeDispatchNote(
 	vault: string,
-	args: { slug: string; handoffId: string; runId: string; task: string; facts?: string },
+	args: {
+		slug: string;
+		handoffId: string;
+		runId: string;
+		task: string;
+		facts?: string;
+		created?: string;
+	},
 ): void {
 	const inbox = handoffInbox(vault, args.slug);
 	const doneDir = join(inbox, "done");
 	const filename = `${args.handoffId}.md`;
 	if (existsSync(join(inbox, filename)) || existsSync(join(doneDir, filename))) return; // dedup
 	mkdirSync(inbox, { recursive: true });
+	// Prefer an explicit `created`; else derive from a date-prefixed handoffId
+	// (the SEND convention); else omit rather than write a garbage date sliced
+	// out of an id that was never date-prefixed (e.g. `run-<uuid>-n1`).
+	const created =
+		args.created ?? (DATE_PREFIX.test(args.handoffId) ? args.handoffId.slice(0, 10) : undefined);
 	const data = {
 		handoff_id: args.handoffId,
 		from: "conductor",
 		to: args.slug,
 		status: "pending",
 		run_id: args.runId,
-		created: args.handoffId.slice(0, 10),
+		...(created ? { created } : {}),
 	};
 	const body = `## Task\n${args.task}\n${args.facts ? `\n## Facts\n${args.facts}\n` : ""}`;
 	writeFileSync(join(inbox, filename), joinFrontmatter(data, body), "utf8");

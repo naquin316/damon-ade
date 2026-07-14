@@ -52,7 +52,18 @@ Roster picks (from real capabilities, not invented ones):
   on the live store.
 - `sm-manager` — drafts and queues the announcement posts for Ryan's approval.
 
-```yaml
+The manifest file `readManifest`/`splitFrontmatter` expect is markdown with YAML
+**frontmatter** — a `---`-delimited block, NOT a bare ```yaml code fence. A fenceless
+example (or a fenced code block with no `---` markers) will lead you to write a file
+`readManifest` can't parse, which returns `null` and makes `submitGoal` time out
+silently waiting for a plan that technically exists on disk but can't be read. This
+is the actual file to write to `<VAULT>/2. Areas/Orchestrator/runs/<run_id>.md` —
+note the `---` frontmatter fences, `status: awaiting-approval` (this skill STOPS
+here — plan only, do NOT dispatch or poll), and the one-line body below the closing
+`---`:
+
+```markdown
+---
 run_id: 2026-07-13-fathers-day-push
 goal: Put together a Father's Day push for the store.
 status: awaiting-approval
@@ -80,6 +91,8 @@ nodes:
     handoff_id: null
     result: null
 summary: null
+---
+Awaiting Ryan's approval — plan only, not yet dispatched.
 ```
 
 After `wireDependencies()` runs (not this skill — the engine), `n2.needs` picks up
