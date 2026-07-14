@@ -99,6 +99,15 @@ export function buildPostBody(req: CreatePostRequest): unknown {
 	};
 }
 
+/**
+ * Create a scheduled post.
+ *
+ * The response is `{"postSubmissionId":"<uuid>"}` — MEASURED against the live API
+ * 2026-07-14, not read off a doc. It is NOT `id`, and it is NOT the schedule id:
+ * the same post appears under `GET /v2/schedules` with a separate numeric `id`
+ * (e.g. 2560423), which is what `DELETE /v2/schedules/:id` takes. Two different
+ * identifiers for one post; don't conflate them.
+ */
 export async function createPost(
 	deps: BlotatoDeps,
 	req: CreatePostRequest,
@@ -110,9 +119,13 @@ export async function createPost(
 	});
 	if (!res.ok) throw new Error(`createPost failed: ${await readError(res)}`);
 	const json = (await res.json()) as Record<string, unknown>;
-	// Be liberal about where the id lives; report the raw payload if we can't find
-	// one rather than claiming a success we can't evidence.
+	// Liberal about where the id lives, because guessing wrong here is expensive in
+	// BOTH directions: the first live run POSTed successfully, failed to recognise
+	// `postSubmissionId`, and threw — so a real post was scheduled while the note
+	// was parked at needs-review. Fail-safe, but wrong. Never claim a success we
+	// cannot evidence, and never miss one we actually got.
 	const id =
+		(json.postSubmissionId as string) ??
 		(json.id as string) ??
 		((json.post as Record<string, unknown> | undefined)?.id as string) ??
 		((json.data as Record<string, unknown> | undefined)?.id as string);
@@ -121,6 +134,49 @@ export async function createPost(
 			`createPost: no post id in response: ${JSON.stringify(json).slice(0, 200)}`,
 		);
 	return { id: String(id) };
+}
+
+export interface BlotatoSchedule {
+	id: string;
+	draft?: { target?: { targetType?: string }; content?: { text?: string } };
+	scheduledAt?: string;
+	[key: string]: unknown;
+}
+
+/** Scheduled-but-unpublished posts. The `id` here is the SCHEDULE id — the one
+ *  `deleteSchedule` takes, distinct from createPost's `postSubmissionId`. */
+export async function listSchedules(
+	deps: BlotatoDeps,
+	limit = 25,
+): Promise<BlotatoSchedule[]> {
+	const res = await deps.fetch(
+		`${deps.baseUrl ?? BLOTATO_BASE_URL}/schedules?limit=${limit}`,
+		{
+			headers: headers(deps),
+		},
+	);
+	if (!res.ok) throw new Error(`listSchedules failed: ${await readError(res)}`);
+	const json = (await res.json()) as unknown;
+	const items = (json as { items?: unknown }).items ?? json;
+	if (!Array.isArray(items))
+		throw new Error("listSchedules: unexpected payload shape");
+	return items as BlotatoSchedule[];
+}
+
+/** Cancel a scheduled post before it publishes. Returns 204. Not undoable. */
+export async function deleteSchedule(
+	deps: BlotatoDeps,
+	scheduleId: string,
+): Promise<void> {
+	const res = await deps.fetch(
+		`${deps.baseUrl ?? BLOTATO_BASE_URL}/schedules/${scheduleId}`,
+		{
+			method: "DELETE",
+			headers: headers(deps),
+		},
+	);
+	if (!res.ok)
+		throw new Error(`deleteSchedule failed: ${await readError(res)}`);
 }
 
 /** platform -> account. First account per platform wins; the queue notes carry an
