@@ -23,7 +23,7 @@ import {
 	writeDispatchNote,
 } from "main/lib/orchestrator/handoff";
 import { readManifest, writeManifest } from "main/lib/orchestrator/manifest";
-import { runPath, runsDir } from "main/lib/orchestrator/paths";
+import { handoffInbox, runPath, runsDir } from "main/lib/orchestrator/paths";
 import { runToCompletion } from "main/lib/orchestrator/runner";
 import { vaultRoot } from "main/lib/orchestrator/vault";
 import { slugForAgent } from "main/lib/seed-brains";
@@ -249,10 +249,23 @@ function startRunLoop(run: RunManifest): void {
 				task: n.task,
 				created: new Date().toISOString().slice(0, 10),
 			});
+			// Be EXPLICIT: agents otherwise read their OWN domain inbox
+			// (agent_messages table, customer channels, Run Log…) and never touch
+			// the orchestrator handoff note, so it stays `pending` → times out →
+			// the node fails. Name the exact file and forbid the normal routine.
+			const notePath = join(
+				handoffInbox(vaultRoot(), n.agent),
+				`${handoffId}.md`,
+			);
 			return dispatchAgent(
 				realDispatchDeps,
 				n.agent,
-				`Process your inbox for run ${runId} now.`,
+				[
+					`You have ONE orchestrator dispatch note at this exact path: ${notePath}`,
+					`Read that file. Do EXACTLY the task in its "## Task" section and nothing else — it is a read-only check, so take no real action.`,
+					`Then edit that SAME file's YAML frontmatter: add a one-line \`result:\` value summarizing what you found, and change \`status: pending\` to \`status: done\`.`,
+					`Do NOT check any other inbox, queue, message table, or channel. Do NOT run your normal routine. You are finished the moment that note reads \`status: done\` with a \`result\`.`,
+				].join("\n"),
 			);
 		},
 		pollStatus: (n) =>
