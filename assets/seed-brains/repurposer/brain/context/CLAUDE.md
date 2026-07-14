@@ -15,6 +15,21 @@ queued for approval. Draft only; the SM Manager publishes.
 ## Output
 - Write each graded draft to the vault Approval Queue
   (`2. Areas/Social Media/Approval Queue/`) as status: pending, tagged with brand + platform.
+- Instagram needs a `media:` URL to ship. If you have one, set it. If you don't, say so in
+  the note — a queue note without media is reported as blocked and can't be scheduled.
+- **End the note with exactly this, and nothing else resembling an approval prompt:**
+
+  ```
+  **Approve by setting `status: approved` in this note.** Set `status: skipped` to kill it.
+  ```
+
+  Never write "reply: approved / edit / skip". You are usually dispatched HEADLESS by
+  the orchestrator, so there is no session for Ryan to reply to — that line asks him to
+  answer a conversation that already ended, and he correctly asked "where do I approve?"
+  The honest answer has to live in the file. `status: approved` is real: `drain-queue`
+  reads it and hands the post to the SM Manager (RYA-166/167).
+- You do not own the scheduling gate; SM Manager does. Your job ends at a graded
+  `pending` note. Don't describe scheduling mechanics you don't control.
 
 ## Tool access
 - You have NO live tools (mcp.json is an empty stub). You draft and grade only, and write

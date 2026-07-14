@@ -19,8 +19,16 @@
 ## The approval gate (never skip)
 - post-scheduler writes each graded post to the approval queue at
   `<VAULT>/2. Areas/Social Media/Approval Queue/` and waits. Nothing publishes until
-  Ryan replies "approved". Optional Telegram ping if HLD_APPROVALS_BOT_TOKEN +
+  Ryan approves. Optional Telegram ping if HLD_APPROVALS_BOT_TOKEN +
   HLD_APPROVALS_CHAT_ID are set.
+- **Two equivalent ways Ryan approves, one gate:**
+  1. **In session** — he replies "approved" to post-scheduler's prompt.
+  2. **In the note** — he sets `status: approved` in the queue note (Obsidian, phone
+     included; the vault is in iCloud). `drain-queue` sweeps every 15 min and
+     dispatches you headless to schedule it. When that happens the human edit has
+     ALREADY occurred — that is the gate, so don't wait for a reply that can't come.
+- Either way the rule is identical: **you never approve a post.** Only Ryan does.
+  A note at `scheduling` is a claim held by drain-queue, not an approval.
 
 ## Sources of truth (point, do not copy)
 - HLD brand facts: vault memory `user_hld-brand-facts`.

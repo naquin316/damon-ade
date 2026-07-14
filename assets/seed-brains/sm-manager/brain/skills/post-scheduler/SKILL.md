@@ -26,9 +26,25 @@ There is no autonomous-publish path. Every post goes through this gate first:
    - File: `<YYYY-MM-DD>-<short-slug>.md`. Include: brand, target platform(s), the
      final copy verbatim, the grade + rubric notes, intended schedule time, and a
      `status: pending` line.
+   - **Footer — write this and nothing else as the note's approval line:**
+
+     ```
+     **Approve by setting `status: approved` in this note.** Ryan can do that in
+     Obsidian, including on his phone. `drain-queue` picks it up within 15 minutes
+     and schedules it. Set `status: skipped` to kill it.
+     ```
+
+     Do NOT write "reply: approved / edit / skip" into the note. **The note carries
+     state; the session carries the question.** A note outlives the conversation
+     that produced it — when it's written headless (`claude -p`, e.g. by the
+     orchestrator) there is no session to reply to, so a reply-prompt in the file is
+     an instruction to talk to someone who has already left the room (RYA-167).
+     `status: approved` is real: it is read by `drain-queue` (RYA-166).
 3. **Emit the approval request:**
-   - Always: print the queued post to the operator and ask
-     "Approve and schedule? (reply: approved / edit / skip)".
+   - **Session only — skip this entirely if you are running headless (`-p`).**
+     Print the queued post to the operator and ask
+     "Approve and schedule? (reply: approved / edit / skip)". This question is only
+     answerable while a session is live; the note's footer is the durable path.
    - Optional phone ping: if BOTH `HLD_APPROVALS_BOT_TOKEN` and `HLD_APPROVALS_CHAT_ID`
      are set in the environment, POST a one-line notice to
      `https://api.telegram.org/bot$HLD_APPROVALS_BOT_TOKEN/sendMessage`
@@ -39,6 +55,22 @@ There is no autonomous-publish path. Every post goes through this gate first:
    the scheduling steps below and call `blotato_create_post`. On **"edit"**, revise
    (or route back to post-writer) and re-queue. On **"skip"**, set the queue note
    `status: skipped` and stop.
+
+   **There are exactly two ways this gate is satisfied, and they are equivalent:**
+
+   | Path | The approval | Who tells you |
+   |---|---|---|
+   | Interactive | Ryan replies "approved" in the session | the reply above |
+   | Queue | Ryan set `status: approved` in the note himself | `drain-queue` dispatches you and says so |
+
+   If you were dispatched by `drain-queue`, the human edit **already happened** —
+   that IS this gate, and waiting for a reply would hang forever because there is no
+   session. Proceed to Step 4. You will find the note at `status: scheduling` (a
+   claim taken so a concurrent run can't double-post it); leave it at `scheduled` or
+   `needs-review`, never at `scheduling`.
+
+   What does NOT change in either path: **you never decide a post is approved.** If
+   nobody approved it, there is no gate to pass.
 5. After a successful schedule, update the queue note to `status: scheduled` with the
    Blotato post id + time returned in Step 5.
 
