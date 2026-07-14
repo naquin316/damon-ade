@@ -12,10 +12,21 @@ import type { BlotatoAccount } from "./blotato";
 /** How long a `scheduling` claim may sit before it stops being "in progress". */
 export const STALE_CLAIM_MS = 20 * 60 * 1000;
 
-/** Platforms that cannot be posted without a media URL. Instagram is the only one
- *  Blotato/post-scheduler declare as hard-required, so it's the only one enforced —
- *  guessing at others would block real posts. */
-const MEDIA_REQUIRED = new Set(["instagram"]);
+/**
+ * Platforms that cannot carry a text-only post.
+ *
+ * Instagram was the only entry until a live check found the hole: a note reading
+ * `platform: tiktok` with no `media:` would have sailed through the gate and posted
+ * its TEXT to TikTok — a platform where a post without a video does not exist. The
+ * near-miss was real: two `type: video-script` notes (shooting scripts full of
+ * `[b-roll: …]` directions) were one field-edit away from being published as TikTok
+ * captions.
+ *
+ * These are media-or-nothing platforms. Being wrong in the permissive direction here
+ * publishes garbage to a live account; being wrong in the strict direction just
+ * reports `no-media` and waits.
+ */
+const MEDIA_REQUIRED = new Set(["instagram", "tiktok", "youtube", "pinterest"]);
 
 /** Facebook's API requires a page id on `target`. */
 const PAGE_ID_REQUIRED = new Set(["facebook"]);
@@ -35,6 +46,8 @@ export interface QueueNote {
 	schedulingStarted: string | null;
 	/** The verbatim copy to publish, lifted from `## Final copy (verbatim)`. */
 	copy: string | null;
+	/** The note's declared `type:` — some types are human deliverables, not posts. */
+	type: string | null;
 }
 
 /** Statuses this system understands. Anything else in the field is a typo, and a
@@ -68,7 +81,24 @@ export type BlockedReason =
 	| "no-copy"
 	| "no-connected-account"
 	| "no-page-id"
-	| "unknown-status";
+	| "unknown-status"
+	| "not-a-post";
+
+/**
+ * `type:` values that are DELIVERABLES FOR A HUMAN, not publishable copy.
+ *
+ * A `video-script` note's "Final copy" is a shooting script — `**HOOK (first 1.7s)**`,
+ * `[b-roll: laser engraver running]`, on-screen text cues. It describes a video that
+ * does not exist yet. Publishing it would post stage directions to a live account.
+ *
+ * This exists because that nearly happened: two reel scripts were labelled
+ * `platform: short-form-video` (correctly — "a video, once filmed"), and the obvious
+ * "fix" was to change it to `tiktok`. That one edit would have published the script
+ * text itself. The media gate would NOT have caught it before tiktok was added to
+ * MEDIA_REQUIRED, and even now a script with a video attached would still be wrong
+ * copy. So refuse on the note's own declared type, not on a downstream symptom.
+ */
+const NON_POST_TYPES = new Set(["video-script", "script", "outline", "brief"]);
 
 export type Classification =
 	| { kind: "shippable"; posts: PlannedPost[] }
@@ -181,6 +211,7 @@ export function readNote(file: string, raw: string): QueueNote {
 		scheduledTime: pick("scheduled_time") ?? null,
 		schedulingStarted: pick("scheduling_started") ?? null,
 		copy: extractCopy(raw),
+		type: (pick("type") ?? null)?.toLowerCase() ?? null,
 	};
 }
 
@@ -253,6 +284,16 @@ export function classify(
 			};
 		}
 		return { kind: "untouched", status: note.status };
+	}
+
+	// Checked before everything else about the content: a script is not a post, no
+	// matter how well-formed the rest of the note is or what platform it names.
+	if (note.type && NON_POST_TYPES.has(note.type)) {
+		return {
+			kind: "blocked",
+			reason: "not-a-post",
+			detail: `type: ${note.type} is a deliverable for a human (a script/outline), not publishable copy — film it first, then attach the video`,
+		};
 	}
 
 	if (note.platforms.length === 0)

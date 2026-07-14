@@ -258,6 +258,81 @@ describe("classify — a typo is LOUD, not silent", () => {
 	});
 });
 
+describe("classify — a script is not a post", () => {
+	// The near-miss this exists for: two REAL notes are reel shooting scripts
+	// (`**HOOK (first 1.7s)**`, `[b-roll: laser engraver running]`) labelled
+	// `platform: short-form-video`. "Fixing" that to tiktok would have published the
+	// stage directions themselves to a live account.
+	test("a video-script is blocked even when everything else is valid", () => {
+		const n = readNote(
+			"a.md",
+			note({
+				status: "approved",
+				type: "video-script",
+				platform: "tiktok",
+				media: "https://x/v.mp4",
+			}),
+		);
+		const c = classify(n, NOW, CONNECTED);
+		expect(c.kind).toBe("blocked");
+		if (c.kind === "blocked") expect(c.reason).toBe("not-a-post");
+	});
+
+	test("it is blocked even with the checkbox ticked", () => {
+		const n = readNote(
+			"a.md",
+			note({
+				status: "pending",
+				approved: "true",
+				type: "video-script",
+				platform: "tiktok",
+				media: "https://x/v.mp4",
+			}),
+		);
+		expect(classify(n, NOW, CONNECTED).kind).toBe("blocked");
+	});
+
+	test("an ordinary post type still ships", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "approved", type: "x-thread", platform: "threads" }),
+		);
+		expect(classify(n, NOW, CONNECTED).kind).toBe("shippable");
+	});
+
+	test("no type at all still ships", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "approved", platform: "threads" }),
+		);
+		expect(classify(n, NOW, CONNECTED).kind).toBe("shippable");
+	});
+});
+
+describe("classify — media-or-nothing platforms", () => {
+	// tiktok/youtube/pinterest cannot carry a text-only post. Before this, a note
+	// reading `platform: tiktok` with no media would have posted its TEXT to TikTok.
+	for (const platform of ["instagram", "tiktok", "pinterest"]) {
+		test(`${platform} without media is blocked`, () => {
+			const conn = new Map<string, BlotatoAccount>([
+				[platform, { id: "1", platform }],
+			]);
+			const n = readNote("a.md", note({ status: "approved", platform }));
+			const c = classify(n, NOW, conn);
+			expect(c.kind).toBe("blocked");
+			if (c.kind === "blocked") expect(c.reason).toBe("no-media");
+		});
+	}
+
+	test("threads is text-only-friendly and still ships without media", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "approved", platform: "threads" }),
+		);
+		expect(classify(n, NOW, CONNECTED).kind).toBe("shippable");
+	});
+});
+
 describe("classify — account resolution", () => {
 	// Measured: Ryan has no x/linkedin account. 8 pending notes target them.
 	test("a platform with no connected account is blocked, not sent", () => {
