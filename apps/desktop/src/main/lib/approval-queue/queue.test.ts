@@ -1,10 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { classify, parsePlatforms, readNote, STALE_CLAIM_MS, withStatus } from "./queue";
+import {
+	classify,
+	parsePlatforms,
+	readNote,
+	STALE_CLAIM_MS,
+	withStatus,
+} from "./queue";
 
 const NOW = Date.parse("2026-07-14T12:00:00Z");
 
 /** Minimal note builder — frontmatter shape mirrors the real queue. */
-function note(fm: Record<string, string>, body = "## Final copy (verbatim)\n\nhello\n") {
+function note(
+	fm: Record<string, string>,
+	body = "## Final copy (verbatim)\n\nhello\n",
+) {
 	const lines = Object.entries(fm).map(([k, v]) => `${k}: ${v}`);
 	return `---\n${lines.join("\n")}\n---\n\n${body}`;
 }
@@ -16,11 +25,17 @@ describe("parsePlatforms", () => {
 
 	// The live queue really contains `platform: instagram + facebook`.
 	test("splits the space-plus-separated multi form", () => {
-		expect(parsePlatforms("instagram + facebook")).toEqual(["instagram", "facebook"]);
+		expect(parsePlatforms("instagram + facebook")).toEqual([
+			"instagram",
+			"facebook",
+		]);
 	});
 
 	test("normalises case and whitespace", () => {
-		expect(parsePlatforms("  Instagram  +  FACEBOOK ")).toEqual(["instagram", "facebook"]);
+		expect(parsePlatforms("  Instagram  +  FACEBOOK ")).toEqual([
+			"instagram",
+			"facebook",
+		]);
 	});
 
 	test("empty / missing yields no targets", () => {
@@ -31,7 +46,14 @@ describe("parsePlatforms", () => {
 
 describe("readNote — tolerant parse (the 4f17f3f lesson)", () => {
 	test("reads a well-formed note", () => {
-		const n = readNote("a.md", note({ status: "approved", platform: "instagram", media: "https://x/y.png" }));
+		const n = readNote(
+			"a.md",
+			note({
+				status: "approved",
+				platform: "instagram",
+				media: "https://x/y.png",
+			}),
+		);
 		expect(n.status).toBe("approved");
 		expect(n.platforms).toEqual(["instagram"]);
 		expect(n.media).toBe("https://x/y.png");
@@ -65,16 +87,33 @@ describe("readNote — tolerant parse (the 4f17f3f lesson)", () => {
 describe("classify — the never-approve invariant", () => {
 	// The consumer ships ONLY what a human already marked approved. Any other
 	// status must be inert. This is the invariant the whole gate rests on.
-	for (const status of ["pending", "skipped", "scheduled", "draft", "", "APPROVED_LOOKALIKE"]) {
+	for (const status of [
+		"pending",
+		"skipped",
+		"scheduled",
+		"draft",
+		"",
+		"APPROVED_LOOKALIKE",
+	]) {
 		test(`status "${status}" is never shipped`, () => {
-			const n = readNote("a.md", note({ status, platform: "instagram", media: "https://x/y.png" }));
+			const n = readNote(
+				"a.md",
+				note({ status, platform: "instagram", media: "https://x/y.png" }),
+			);
 			const c = classify(n, NOW);
 			expect(c.kind).not.toBe("shippable");
 		});
 	}
 
 	test("approved + media is shippable", () => {
-		const n = readNote("a.md", note({ status: "approved", platform: "instagram", media: "https://x/y.png" }));
+		const n = readNote(
+			"a.md",
+			note({
+				status: "approved",
+				platform: "instagram",
+				media: "https://x/y.png",
+			}),
+		);
 		const c = classify(n, NOW);
 		expect(c.kind).toBe("shippable");
 		if (c.kind === "shippable") expect(c.targets).toEqual(["instagram"]);
@@ -88,7 +127,10 @@ describe("classify — the never-approve invariant", () => {
 
 describe("classify — media gate", () => {
 	test("instagram without media is blocked, not failed", () => {
-		const n = readNote("a.md", note({ status: "approved", platform: "instagram" }));
+		const n = readNote(
+			"a.md",
+			note({ status: "approved", platform: "instagram" }),
+		);
 		const c = classify(n, NOW);
 		expect(c.kind).toBe("blocked");
 		if (c.kind === "blocked") expect(c.reason).toBe("no-media");
@@ -101,7 +143,10 @@ describe("classify — media gate", () => {
 
 	// instagram + facebook: instagram's requirement governs the whole note.
 	test("a multi-target note including instagram is blocked without media", () => {
-		const n = readNote("a.md", note({ status: "approved", platform: "instagram + facebook" }));
+		const n = readNote(
+			"a.md",
+			note({ status: "approved", platform: "instagram + facebook" }),
+		);
 		expect(classify(n, NOW).kind).toBe("blocked");
 	});
 
@@ -136,7 +181,11 @@ describe("classify — claiming (the double-post invariant)", () => {
 		const started = new Date(NOW - STALE_CLAIM_MS - 1000).toISOString();
 		const n = readNote(
 			"a.md",
-			note({ status: "scheduling", platform: "x", scheduling_started: started }),
+			note({
+				status: "scheduling",
+				platform: "x",
+				scheduling_started: started,
+			}),
 		);
 		const c = classify(n, NOW);
 		expect(c.kind).toBe("needs-review");
@@ -156,7 +205,11 @@ describe("classify — claiming (the double-post invariant)", () => {
 
 describe("withStatus — surgical, non-destructive mutation", () => {
 	test("rewrites status and leaves every other line byte-identical", () => {
-		const raw = note({ status: "approved", platform: "instagram", media: "https://x/y.png" });
+		const raw = note({
+			status: "approved",
+			platform: "instagram",
+			media: "https://x/y.png",
+		});
 		const out = withStatus(raw, "scheduling");
 		expect(readNote("a.md", out).status).toBe("scheduling");
 		expect(out).toContain("platform: instagram");
@@ -185,22 +238,36 @@ describe("withStatus — surgical, non-destructive mutation", () => {
 
 	test("upserts extra fields", () => {
 		const raw = note({ status: "approved", platform: "x" });
-		const out = withStatus(raw, "scheduling", { scheduling_started: "2026-07-14T12:00:00Z" });
-		expect(readNote("a.md", out).schedulingStarted).toBe("2026-07-14T12:00:00Z");
+		const out = withStatus(raw, "scheduling", {
+			scheduling_started: "2026-07-14T12:00:00Z",
+		});
+		expect(readNote("a.md", out).schedulingStarted).toBe(
+			"2026-07-14T12:00:00Z",
+		);
 	});
 
 	test("overwrites an existing extra field rather than duplicating it", () => {
-		const raw = note({ status: "scheduling", scheduling_started: "2026-01-01T00:00:00Z", platform: "x" });
-		const out = withStatus(raw, "scheduling", { scheduling_started: "2026-07-14T12:00:00Z" });
+		const raw = note({
+			status: "scheduling",
+			scheduling_started: "2026-01-01T00:00:00Z",
+			platform: "x",
+		});
+		const out = withStatus(raw, "scheduling", {
+			scheduling_started: "2026-07-14T12:00:00Z",
+		});
 		expect(out.match(/scheduling_started:/g)).toHaveLength(1);
-		expect(readNote("a.md", out).schedulingStarted).toBe("2026-07-14T12:00:00Z");
+		expect(readNote("a.md", out).schedulingStarted).toBe(
+			"2026-07-14T12:00:00Z",
+		);
 	});
 
 	// Values arriving from note text can contain `$&`/`$1`, which are replacement
 	// specials — a naive String.replace would corrupt the file.
 	test("a value containing regex replacement specials survives intact", () => {
 		const raw = note({ status: "approved", platform: "x" });
-		const out = withStatus(raw, "scheduled", { blotato_post_id: "id-$&-$1-$'" });
+		const out = withStatus(raw, "scheduled", {
+			blotato_post_id: "id-$&-$1-$'",
+		});
 		expect(out).toContain("blotato_post_id: id-$&-$1-$'");
 	});
 

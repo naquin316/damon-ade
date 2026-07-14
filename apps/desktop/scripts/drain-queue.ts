@@ -16,10 +16,22 @@
  * Design + invariants: docs/superpowers/specs/2026-07-14-approval-queue-consumer-design.md
  */
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	openSync,
+	readdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { type DrainDeps, type ShipTarget, drain, formatReport } from "../src/main/lib/approval-queue/ship";
+import {
+	type DrainDeps,
+	drain,
+	formatReport,
+	type ShipTarget,
+} from "../src/main/lib/approval-queue/ship";
 import { vaultRoot } from "../src/main/lib/orchestrator/vault";
 
 const QUEUE_DIR = join(vaultRoot(), "2. Areas/Social Media/Approval Queue");

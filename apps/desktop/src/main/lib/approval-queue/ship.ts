@@ -69,7 +69,9 @@ export function drain(deps: DrainDeps, opts: { ship: boolean }): DrainReport {
 					// tick picks it up and posts it again.
 					deps.write(
 						path,
-						withStatus(raw, "scheduling", { scheduling_started: new Date(now).toISOString() }),
+						withStatus(raw, "scheduling", {
+							scheduling_started: new Date(now).toISOString(),
+						}),
 					);
 					deps.dispatch({ file: path, targets: c.targets, media: c.media });
 					report.shipped.push(path);
@@ -92,7 +94,8 @@ export function drain(deps: DrainDeps, opts: { ship: boolean }): DrainReport {
 					deps.write(
 						path,
 						withStatus(raw, "needs-review", {
-							needs_review_reason: "drain-queue: shipper did not report back; check Blotato before re-approving",
+							needs_review_reason:
+								"drain-queue: shipper did not report back; check Blotato before re-approving",
 						}),
 					);
 					break;
@@ -108,7 +111,10 @@ export function drain(deps: DrainDeps, opts: { ship: boolean }): DrainReport {
 			}
 		} catch (error) {
 			// One unreadable note must not stop the queue draining.
-			report.errors.push({ file: path, error: error instanceof Error ? error.message : String(error) });
+			report.errors.push({
+				file: path,
+				error: error instanceof Error ? error.message : String(error),
+			});
 		}
 	}
 
@@ -117,8 +123,13 @@ export function drain(deps: DrainDeps, opts: { ship: boolean }): DrainReport {
 
 /** Human-readable one-screen summary. Nothing-to-do is the common case, so it
  *  has to be quiet and unmistakable. */
-export function formatReport(report: DrainReport, opts: { ship: boolean; at: string }): string {
-	const lines: string[] = [`Approval Queue drain — ${opts.at}${opts.ship ? "" : "  [DRY RUN]"}`];
+export function formatReport(
+	report: DrainReport,
+	opts: { ship: boolean; at: string },
+): string {
+	const lines: string[] = [
+		`Approval Queue drain — ${opts.at}${opts.ship ? "" : "  [DRY RUN]"}`,
+	];
 	const counts = report.untouched.reduce<Record<string, number>>((acc, u) => {
 		acc[u.status] = (acc[u.status] ?? 0) + 1;
 		return acc;
@@ -130,22 +141,35 @@ export function formatReport(report: DrainReport, opts: { ship: boolean; at: str
 
 	const base = (p: string) => p.split("/").pop() ?? p;
 
-	if (opts.ship) lines.push(`  shipped       ${String(report.shipped.length).padStart(2)}`);
-	else lines.push(`  would ship    ${String(report.shippable.length).padStart(2)}`);
-	for (const f of opts.ship ? report.shipped : report.shippable) lines.push(`                   ${base(f)}`);
+	if (opts.ship)
+		lines.push(`  shipped       ${String(report.shipped.length).padStart(2)}`);
+	else
+		lines.push(
+			`  would ship    ${String(report.shippable.length).padStart(2)}`,
+		);
+	for (const f of opts.ship ? report.shipped : report.shippable)
+		lines.push(`                   ${base(f)}`);
 
 	lines.push(`  blocked       ${String(report.blocked.length).padStart(2)}`);
-	for (const b of report.blocked) lines.push(`                   ${base(b.file)}  (${b.reason})`);
+	for (const b of report.blocked)
+		lines.push(`                   ${base(b.file)}  (${b.reason})`);
 
-	lines.push(`  needs-review  ${String(report.needsReview.length).padStart(2)}`);
-	for (const n of report.needsReview) lines.push(`                   ${base(n.file)}`);
+	lines.push(
+		`  needs-review  ${String(report.needsReview.length).padStart(2)}`,
+	);
+	for (const n of report.needsReview)
+		lines.push(`                   ${base(n.file)}`);
 
-	if (report.claimed.length) lines.push(`  in flight     ${String(report.claimed.length).padStart(2)}`);
-	lines.push(`  untouched     ${String(report.untouched.length).padStart(2)}${untouchedDetail ? `  (${untouchedDetail})` : ""}`);
+	if (report.claimed.length)
+		lines.push(`  in flight     ${String(report.claimed.length).padStart(2)}`);
+	lines.push(
+		`  untouched     ${String(report.untouched.length).padStart(2)}${untouchedDetail ? `  (${untouchedDetail})` : ""}`,
+	);
 
 	if (report.errors.length) {
 		lines.push(`  errors        ${String(report.errors.length).padStart(2)}`);
-		for (const e of report.errors) lines.push(`                   ${base(e.file)}: ${e.error}`);
+		for (const e of report.errors)
+			lines.push(`                   ${base(e.file)}: ${e.error}`);
 	}
 	return lines.join("\n");
 }

@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { STALE_CLAIM_MS } from "./queue";
-import { type DrainDeps, type ShipTarget, drain } from "./ship";
+import { type DrainDeps, drain, type ShipTarget } from "./ship";
 
 const NOW = Date.parse("2026-07-14T12:00:00Z");
 
 function note(fm: Record<string, string>) {
-	return `---\n${Object.entries(fm).map(([k, v]) => `${k}: ${v}`).join("\n")}\n---\n\nbody\n`;
+	return `---\n${Object.entries(fm)
+		.map(([k, v]) => `${k}: ${v}`)
+		.join("\n")}\n---\n\nbody\n`;
 }
 
 /** In-memory vault + a log of every effect, so ordering is assertable. */
@@ -35,7 +37,9 @@ function harness(files: Record<string, string>, now = NOW) {
 
 describe("drain — dry run is inert", () => {
 	test("reports candidates but writes nothing and dispatches nothing", () => {
-		const h = harness({ "/q/a.md": note({ status: "approved", platform: "x" }) });
+		const h = harness({
+			"/q/a.md": note({ status: "approved", platform: "x" }),
+		});
 		const r = drain(h.deps, { ship: false });
 
 		expect(r.shippable).toEqual(["/q/a.md"]);
@@ -75,7 +79,9 @@ describe("drain — the double-post invariant", () => {
 	// The bug this whole design exists to prevent: cron tick 2 firing while
 	// tick 1's shipper is still in flight.
 	test("a second tick during an in-flight ship does not dispatch again", () => {
-		const h = harness({ "/q/a.md": note({ status: "approved", platform: "x" }) });
+		const h = harness({
+			"/q/a.md": note({ status: "approved", platform: "x" }),
+		});
 
 		const first = drain(h.deps, { ship: true });
 		expect(first.shipped).toEqual(["/q/a.md"]);
@@ -88,13 +94,17 @@ describe("drain — the double-post invariant", () => {
 	});
 
 	test("the claim is written BEFORE the dispatch", () => {
-		const h = harness({ "/q/a.md": note({ status: "approved", platform: "x" }) });
+		const h = harness({
+			"/q/a.md": note({ status: "approved", platform: "x" }),
+		});
 		drain(h.deps, { ship: true });
 		expect(h.effects).toEqual(["write:/q/a.md", "dispatch:/q/a.md"]);
 	});
 
 	test("a claim that fails to persist aborts the dispatch", () => {
-		const h = harness({ "/q/a.md": note({ status: "approved", platform: "x" }) });
+		const h = harness({
+			"/q/a.md": note({ status: "approved", platform: "x" }),
+		});
 		h.deps.write = () => {
 			throw new Error("disk full");
 		};
@@ -111,7 +121,13 @@ describe("drain — the double-post invariant", () => {
 describe("drain — stale claims escalate, never retry", () => {
 	test("a stale claim is parked as needs-review and not dispatched", () => {
 		const started = new Date(NOW - STALE_CLAIM_MS - 1).toISOString();
-		const h = harness({ "/q/a.md": note({ status: "scheduling", platform: "x", scheduling_started: started }) });
+		const h = harness({
+			"/q/a.md": note({
+				status: "scheduling",
+				platform: "x",
+				scheduling_started: started,
+			}),
+		});
 
 		const r = drain(h.deps, { ship: true });
 		expect(h.dispatched).toEqual([]);
@@ -121,7 +137,13 @@ describe("drain — stale claims escalate, never retry", () => {
 
 	test("parking is terminal — a later tick leaves it alone", () => {
 		const started = new Date(NOW - STALE_CLAIM_MS - 1).toISOString();
-		const h = harness({ "/q/a.md": note({ status: "scheduling", platform: "x", scheduling_started: started }) });
+		const h = harness({
+			"/q/a.md": note({
+				status: "scheduling",
+				platform: "x",
+				scheduling_started: started,
+			}),
+		});
 
 		drain(h.deps, { ship: true });
 		const second = drain(h.deps, { ship: true });
@@ -134,7 +156,9 @@ describe("drain — stale claims escalate, never retry", () => {
 
 describe("drain — blocked notes", () => {
 	test("instagram without media is reported and left approved for a re-run", () => {
-		const h = harness({ "/q/a.md": note({ status: "approved", platform: "instagram" }) });
+		const h = harness({
+			"/q/a.md": note({ status: "approved", platform: "instagram" }),
+		});
 		const r = drain(h.deps, { ship: true });
 
 		expect(r.blocked).toEqual([{ file: "/q/a.md", reason: "no-media" }]);
@@ -146,7 +170,10 @@ describe("drain — blocked notes", () => {
 
 describe("drain — resilience", () => {
 	test("one unreadable note does not stop the rest of the queue", () => {
-		const h = harness({ "/q/bad.md": "", "/q/good.md": note({ status: "approved", platform: "x" }) });
+		const h = harness({
+			"/q/bad.md": "",
+			"/q/good.md": note({ status: "approved", platform: "x" }),
+		});
 		h.deps.read = (p) => {
 			if (p === "/q/bad.md") throw new Error("EACCES");
 			return h.fs[p] as string;
@@ -159,7 +186,11 @@ describe("drain — resilience", () => {
 
 	test("a multi-target note passes every platform through", () => {
 		const h = harness({
-			"/q/a.md": note({ status: "approved", platform: "instagram + facebook", media: "https://x/y.png" }),
+			"/q/a.md": note({
+				status: "approved",
+				platform: "instagram + facebook",
+				media: "https://x/y.png",
+			}),
 		});
 		drain(h.deps, { ship: true });
 		expect(h.dispatched[0]?.targets).toEqual(["instagram", "facebook"]);

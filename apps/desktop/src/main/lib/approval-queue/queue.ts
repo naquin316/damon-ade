@@ -47,7 +47,12 @@ export type Classification =
 function scanField(fm: string, key: string): string | undefined {
 	const m = fm.match(new RegExp(`^${key}:[ \\t]*(.*)$`, "m"));
 	if (!m) return undefined;
-	return m[1].trim().replace(/^["']|["']$/g, "").trim() || undefined;
+	return (
+		m[1]
+			.trim()
+			.replace(/^["']|["']$/g, "")
+			.trim() || undefined
+	);
 }
 
 /** `instagram + facebook` is a real value in the live queue, so a platform field
@@ -94,7 +99,9 @@ export function readNote(file: string, raw: string): QueueNote {
 export function classify(note: QueueNote, now: number): Classification {
 	// A claim taken by an in-flight drain.
 	if (note.status === "scheduling") {
-		const started = note.schedulingStarted ? Date.parse(note.schedulingStarted) : Number.NaN;
+		const started = note.schedulingStarted
+			? Date.parse(note.schedulingStarted)
+			: Number.NaN;
 		if (Number.isFinite(started) && now - started < STALE_CLAIM_MS) {
 			// Someone is shipping this right now. Hands off — re-dispatching here is
 			// precisely the duplicate public post the claim exists to prevent.
@@ -106,10 +113,15 @@ export function classify(note: QueueNote, now: number): Classification {
 		// Nothing on disk distinguishes the two. The orchestrator gambles on resume
 		// because its side effects are private vault writes; a public post is
 		// irreversible, so this escalates to a human instead of guessing.
-		return { kind: "needs-review", reason: "stale-claim", since: note.schedulingStarted };
+		return {
+			kind: "needs-review",
+			reason: "stale-claim",
+			since: note.schedulingStarted,
+		};
 	}
 
-	if (note.status !== "approved") return { kind: "untouched", status: note.status };
+	if (note.status !== "approved")
+		return { kind: "untouched", status: note.status };
 
 	if (note.platforms.length === 0) {
 		return { kind: "blocked", reason: "no-platform", targets: [] };
@@ -163,5 +175,9 @@ export function withStatus(
 	upsert("status", status);
 	for (const [k, v] of Object.entries(extra)) upsert(k, v);
 
-	return raw.replace(FM_BLOCK, (_all, open: string, _body: string, close: string) => `${open}${fm}${close}`);
+	return raw.replace(
+		FM_BLOCK,
+		(_all, open: string, _body: string, close: string) =>
+			`${open}${fm}${close}`,
+	);
 }
