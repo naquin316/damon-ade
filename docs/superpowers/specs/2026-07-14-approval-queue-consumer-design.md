@@ -57,18 +57,61 @@ imports Electron.
 **Same entry point both ways.** The LaunchAgent and the on-demand `/drain-queue` skill
 call the identical script. The manual path is free.
 
-## Transport: why it goes through a headless agent
+## Transport: REST, directly — CORRECTED 2026-07-14
 
-Blotato is an **OAuth HTTP MCP** (`https://mcp.blotato.com/mcp`). There is no API key —
-checked `env` and `~/.secrets.zsh`, nothing. So a plain Node script *cannot* call Blotato.
+> This section originally specified a headless `claude -p` dispatch at sm-manager,
+> reusing its MCP session. **That was built, shipped as `a2d48ba`, and cannot work.**
+> Corrected after measuring. The original reasoning ("there is no API key — checked
+> `env` and `~/.secrets.zsh`") was true but incomplete: the key is in **1Password**
+> (`op://Personal/Blotato/credential`), which is where Ryan's secrets live.
 
-The shipper therefore dispatches a headless `claude -p` against the **sm-manager** brain,
-reusing its authed MCP session and the existing `post-scheduler` skill — the same
-detached-spawn pattern the orchestrator already uses (`orchestrator.ts` `spawnHeadless`).
+**The MCP path is impossible for a headless drain.** Blotato's MCP
+(`https://mcp.blotato.com/mcp`) authenticates by an **interactive OAuth flow**. Measured
+twice — the Agent SDK and `claude -p --strict-mcp-config` — both report
+`status: needs-auth` with **zero blotato tools exposed**, *even with the
+`blotato-api-key` header set*. The agent's own words: *"this session is non-interactive,
+so the OAuth flow cannot be run here."*
 
-Consequence worth stating: `post-scheduler`'s own gate ("WAIT for the operator") is
-satisfied *before* dispatch, by the human-set `status: approved` in the note. The drain
-passes that approval through; it does not bypass the gate, and it does not create one.
+Worse, the seeded brain's `mcp.json` carries **no credential at all**, and
+`--strict-mcp-config` deliberately ignores the authorized user-level entry in
+`~/.claude.json`. So a dispatched agent would hit `post-scheduler`'s "Blotato isn't
+connected" fallback, write a paste file, and never schedule. It fails *safe* (claim → no
+send → `needs-review`; nothing double-posts) but the loop never delivers.
+
+**REST works.** `GET backend.blotato.com/v2/users/me/accounts` with the same key in a
+`blotato-api-key` header → **200**. So the drain calls REST directly:
+
+| | headless agent + MCP | direct REST |
+|---|---|---|
+| Works headless | ❌ never | ✅ |
+| Cost per post | ~$0.50 (Opus session) | ~$0 |
+| Determinism | model may refuse/hang | a function call |
+| Testable | stub binary | injected `fetch` |
+
+What we give up: `post-scheduler`'s Step 2 pre-publish re-check. Acceptable — those rules
+already ran at **draft** time (every note carries a grade, 8.7–9.0), so re-running them at
+ship time was belt-and-braces. The gates that *are* load-bearing (media, platform,
+account, copy present) are enforced in code and unit-tested.
+
+`api.blotato.com` is **not a valid host** — the docs say so explicitly, and it is the
+hostname an LLM guesses. Base URL is `backend.blotato.com/v2`.
+
+### Measured account reality (2026-07-14)
+
+5 connected: **facebook, instagram, pinterest, threads, tiktok**. **No X. No LinkedIn.**
+So 8 of the 16 pending notes (5 X + 3 LinkedIn) can never ship as-is — hence
+`blocked: no-connected-account`, reported rather than discovered at send time.
+
+`accountId: 6789` on `2026-07-08-hld-ig-teacher-tumbler.md` is **not** a placeholder (the
+open question below): it is the real `handlanedesigns` Instagram id.
+
+### Secret handling
+
+The key is injected at runtime, never stored in the repo or the plist.
+`scripts/drain-queue.sh` resolves it from `~/.secrets.zsh` — **not** `op run`, which needs
+an interactive unlock that launchd cannot provide (observed: hangs, then
+`authorization timeout`). `~/.secrets.zsh` is the pattern every other LaunchAgent on this
+machine already uses (see the-conn's `run-agent.sh`).
 
 ## Parsing: tolerant, per the 4f17f3f lesson
 
@@ -164,9 +207,24 @@ Live: dry-run against the real 21-note queue, assert `shipped 0` and zero mutati
 - No new dashboard — The Conn owns the phone surface (2026-07-12 LifeOS consolidation).
 - No auto-approval, ever, under any flag.
 
-## Open question for Ryan
+## Open questions
 
-`accountId: 6789` on `2026-07-08-hld-ig-teacher-tumbler.md` looks like a placeholder
-rather than a real Blotato account id. If it is, the drain should ignore `accountId` and
-let `post-scheduler` resolve accounts via `blotato_list_accounts` (its Step 3 already
-does). Confirm before the first live ship.
+- ~~Is `accountId: 6789` a placeholder?~~ **No** — measured: it's the real
+  `handlanedesigns` Instagram account id. The note's explicit `accountId` wins over the
+  platform default, so it pins the exact account a human reviewed.
+- **8 pending notes target X/LinkedIn, which aren't connected to Blotato.** Ryan's call
+  (2026-07-14): report them `blocked: no-connected-account` and leave them alone. They
+  become shippable the moment those accounts are connected — no re-approval needed.
+- **Facebook needs a `pageId`.** Read from the account payload, else the note's
+  `pageId:`, else `blocked: no-page-id`. Unverified against a live FB post — the account
+  list didn't obviously carry one. First FB ship will tell us.
+- **The exposed key.** The `blt_` value is in plaintext in
+  `2. Areas/Sessions/Transcripts/2026-07-08-session-9c773e24.md` (captured verbatim when
+  `claude mcp add` was run), in an iCloud-synced vault. Ryan deferred rotation
+  2026-07-14. Tracked separately; the value is not repeated here.
+
+## Still owed before this is "done"
+
+1. A live dry run (`./scripts/drain-queue.sh`) — needs an interactive 1Password unlock.
+2. `export BLOTATO_API_KEY=...` in `~/.secrets.zsh`, or the timer no-ops.
+3. Load the LaunchAgent, approve one real post, watch it land.
