@@ -105,13 +105,40 @@ So 8 of the 16 pending notes (5 X + 3 LinkedIn) can never ship as-is — hence
 `accountId: 6789` on `2026-07-08-hld-ig-teacher-tumbler.md` is **not** a placeholder (the
 open question below): it is the real `handlanedesigns` Instagram id.
 
-### Secret handling
+### Secret handling — reuse the existing pipeline (RYA-156)
 
-The key is injected at runtime, never stored in the repo or the plist.
-`scripts/drain-queue.sh` resolves it from `~/.secrets.zsh` — **not** `op run`, which needs
-an interactive unlock that launchd cannot provide (observed: hangs, then
-`authorization timeout`). `~/.secrets.zsh` is the pattern every other LaunchAgent on this
-machine already uses (see the-conn's `run-agent.sh`).
+> Corrected twice. First draft said "no API key exists" (it's in 1Password). Second said
+> "put it in `~/.secrets.zsh`, the established launchd pattern" — **that file has never
+> existed**; the-conn's `run-agent.sh` only *guards* for it (`[ -f … ] && source`) and its
+> own runbook says "None are set yet". A convention was inferred from a reference to it.
+
+The machine already has a 1Password-backed secrets pipeline (`~/.zshrc:322-339`, RYA-156):
+
+```
+~/.secrets.op.zsh   — template of op:// refs (checked into nothing, mode 644)
+      │  op inject, authenticated by the SERVICE ACCOUNT token
+      │  at ~/.config/op/dev-workstation.token
+      ▼
+~/.secrets.env      — 0600 resolved cache, sourced by every shell
+`refresh-secrets`   — re-resolve after rotating
+```
+
+**The service-account token is the whole point.** `op run` / `op signin` need an
+interactive unlock; a timer firing every 15 minutes has no one to touch the sensor
+(observed repeatedly: `authorization timeout`). The service account authenticates
+headlessly, which is exactly what launchd needs. `drain-queue.sh` mirrors `~/.zshrc`'s
+auto-refresh block so both paths behave identically.
+
+**Vault scoping matters.** The service account is scoped to **`Code Secrets` only** —
+`op vault list` returns exactly one vault. The Blotato item lives in `Personal`, so
+`op://Personal/Blotato/credential` resolves in Ryan's own shell but **fails under the
+service account** (`"Personal" isn't a vault in this account`). The key therefore has to
+live at `op://Code Secrets/shell-secrets/BLOTATO_API_KEY`, alongside the other shell vars.
+
+Setup, once:
+1. 1Password → `Code Secrets` → `shell-secrets` → add field `BLOTATO_API_KEY`.
+2. `echo 'export BLOTATO_API_KEY="op://Code Secrets/shell-secrets/BLOTATO_API_KEY"' >> ~/.secrets.op.zsh`
+3. `refresh-secrets`
 
 ## Parsing: tolerant, per the 4f17f3f lesson
 

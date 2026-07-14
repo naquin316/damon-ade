@@ -1,47 +1,55 @@
 #!/bin/bash
 # Approval Queue consumer (RYA-166) — launchd entry point.
 #
-# Resolves BLOTATO_API_KEY, then runs the drain. Mirrors the-conn's run-agent.sh:
-# secrets live outside git and outside the plist, and are injected at runtime.
+# Resolves BLOTATO_API_KEY, then runs the drain.
 #
-# WHY NOT PLAIN `op run`: `op run` needs an interactive unlock (desktop-app
-# integration / biometric). That's fine when you type it yourself, but a LaunchAgent
-# firing every 15 minutes has no one to touch the sensor — it hangs and times out
-# (observed). So the order below prefers whatever is already injected, falls back to
-# ~/.secrets.zsh (this machine's established launchd pattern), and only then tries op
-# for the interactive case.
+# SECRETS: reuses the existing 1Password pipeline (RYA-156), rather than inventing
+# anything. Refs live in ~/.secrets.op.zsh; `op inject` resolves them into the 0600
+# cache ~/.secrets.env using the SERVICE ACCOUNT token at
+# ~/.config/op/dev-workstation.token. That token is why this works under launchd at
+# all: plain `op run`/`op signin` need an interactive unlock, and a timer firing every
+# 15 minutes has no one to touch the sensor (observed: authorization timeout).
+# This mirrors the auto-refresh block in ~/.zshrc so both paths stay identical.
+#
+# To add the key (once):
+#   1Password -> "Code Secrets" -> shell-secrets -> add field BLOTATO_API_KEY
+#   echo 'export BLOTATO_API_KEY="op://Code Secrets/shell-secrets/BLOTATO_API_KEY"' >> ~/.secrets.op.zsh
+#   refresh-secrets
 #
 #   ./scripts/drain-queue.sh            # dry run — prints what WOULD ship, mutates nothing
 #   ./scripts/drain-queue.sh --ship     # actually schedule
-#
-# Install the timer:
-#   cp scripts/com.ryan.drain-queue.plist ~/Library/LaunchAgents/
-#   launchctl load ~/Library/LaunchAgents/com.ryan.drain-queue.plist
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUN="${BUN_BIN:-$HOME/.bun/bin/bun}"
+TMPL="$HOME/.secrets.op.zsh"
+CACHE="$HOME/.secrets.env"
+OP_TOKEN_FILE="$HOME/.config/op/dev-workstation.token"
 
-# 1) already injected (e.g. you ran this under `op run`)
+# 1) already injected (e.g. you exported it yourself)
 if [ -z "${BLOTATO_API_KEY:-}" ]; then
-  # 2) ~/.secrets.zsh — the pattern every other launchd job here uses
-  # shellcheck disable=SC1091
-  [ -f "$HOME/.secrets.zsh" ] && source "$HOME/.secrets.zsh" 2>/dev/null
+  # 2) refresh the 0600 cache if it's missing or older than the template, exactly as
+  #    ~/.zshrc does. Service-account auth => no prompt, works headless.
+  if [ -f "$TMPL" ] && [ -r "$OP_TOKEN_FILE" ] && command -v op >/dev/null 2>&1; then
+    if [ ! -f "$CACHE" ] || [ "$TMPL" -nt "$CACHE" ]; then
+      OP_SERVICE_ACCOUNT_TOKEN="$(<"$OP_TOKEN_FILE")" \
+        op inject -i "$TMPL" -o "$CACHE" -f >/dev/null 2>&1
+    fi
+  fi
+  # 3) source the resolved cache
+  # shellcheck disable=SC1090
+  [ -f "$CACHE" ] && source "$CACHE" 2>/dev/null
 fi
+export BLOTATO_API_KEY="${BLOTATO_API_KEY:-}"
 
-# 3) interactive fallback: pull straight from 1Password. Will PROMPT, so it is last
-#    and is skipped without a TTY (i.e. under launchd) rather than hanging.
-if [ -z "${BLOTATO_API_KEY:-}" ] && [ -t 0 ] && command -v op >/dev/null 2>&1; then
-  BLOTATO_API_KEY="$(op read "op://Personal/Blotato/credential" 2>/dev/null)"
-fi
-export BLOTATO_API_KEY
-
-if [ -z "${BLOTATO_API_KEY:-}" ]; then
+if [ -z "$BLOTATO_API_KEY" ] || [ "${BLOTATO_API_KEY#op://}" != "$BLOTATO_API_KEY" ]; then
   echo "drain-queue: BLOTATO_API_KEY unresolved." >&2
-  echo "  For the launchd timer, add it to ~/.secrets.zsh (same pattern as the-conn's agent):" >&2
-  echo '    export BLOTATO_API_KEY="$(op read op://Personal/Blotato/credential)"   # or the literal value' >&2
-  echo "  For a one-off by hand:" >&2
-  echo '    BLOTATO_API_KEY="op://Personal/Blotato/credential" op run -- ./scripts/drain-queue.sh' >&2
+  echo "  The key must live in the vault the service account can actually read." >&2
+  echo "  It is scoped to 'Code Secrets' only — a ref to op://Personal/... will NOT resolve." >&2
+  echo "" >&2
+  echo "  1. 1Password -> 'Code Secrets' -> shell-secrets -> add field BLOTATO_API_KEY" >&2
+  echo "  2. echo 'export BLOTATO_API_KEY=\"op://Code Secrets/shell-secrets/BLOTATO_API_KEY\"' >> ~/.secrets.op.zsh" >&2
+  echo "  3. refresh-secrets" >&2
   exit 1
 fi
 

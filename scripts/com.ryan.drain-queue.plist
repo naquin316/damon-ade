@@ -13,11 +13,18 @@
   allowed to actually schedule. It still cannot approve anything.
 
   Runs via drain-queue.sh, not bun directly, because the wrapper resolves
-  BLOTATO_API_KEY from ~/.secrets.zsh. `op run` is NOT used here: it needs an
-  interactive unlock, and launchd has no one to touch the sensor.
+  BLOTATO_API_KEY through the existing 1Password pipeline (RYA-156): op inject ->
+  the 0600 cache ~/.secrets.env, authenticated by the SERVICE ACCOUNT token at
+  ~/.config/op/dev-workstation.token. That token is what makes this work headless —
+  plain `op run`/`op signin` need an interactive unlock and launchd has no one to
+  touch the sensor.
 
-  PRECONDITION — this timer no-ops until the key is resolvable:
-    echo 'export BLOTATO_API_KEY="..."' >> ~/.secrets.zsh    # see drain-queue.sh
+  PRECONDITION — this timer no-ops (exit 1, logged) until the key resolves:
+    1Password -> "Code Secrets" -> shell-secrets -> add field BLOTATO_API_KEY
+    echo 'export BLOTATO_API_KEY="op://Code Secrets/shell-secrets/BLOTATO_API_KEY"' >> ~/.secrets.op.zsh
+    refresh-secrets
+  NOTE the vault: the service account is scoped to "Code Secrets" ONLY. A ref to
+  op://Personal/... will not resolve here even though it works in your own shell.
 
   Install:
     cp scripts/com.ryan.drain-queue.plist ~/Library/LaunchAgents/
