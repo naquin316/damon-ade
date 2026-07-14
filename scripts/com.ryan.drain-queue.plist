@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Approval Queue consumer (RYA-166).
+
+  Every 15 minutes: scan `2. Areas/Social Media/Approval Queue/` and hand anything
+  Ryan marked `status: approved` to sm-manager's post-scheduler. The vault is in
+  iCloud and syncs to Obsidian on his phone, so this agent IS the phone-approval
+  path: edit one word on the couch, it ships within 15 minutes. No app required —
+  which is why this is launchd and not a watcher inside RyanOS.
+
+  NOTE the --ship flag. Without it the script is a dry run; this is the one caller
+  that is allowed to actually schedule. It still cannot approve anything.
+
+  Install:
+    cp scripts/com.ryan.drain-queue.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.ryan.drain-queue.plist
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.ryan.drain-queue.plist
+  Watch:
+    tail -f ~/.ade/drain-queue.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ryan.drain-queue</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/ryannaquin/.bun/bin/bun</string>
+        <string>/Users/ryannaquin/Code/damon-ade/apps/desktop/scripts/drain-queue.ts</string>
+        <string>--ship</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/ryannaquin/Code/damon-ade</string>
+    <key>StartInterval</key>
+    <integer>900</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/ryannaquin/.ade/drain-queue.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ryannaquin/.ade/drain-queue.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/ryannaquin/.bun/bin:/Users/ryannaquin/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
