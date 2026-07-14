@@ -225,19 +225,68 @@ re-dispatching a done node.
 `@anthropic-ai/claude-agent-sdk` (TS, v0.3.x). A **transport swap behind the DI seam** —
 engine, DAG, waves, manifest, and Features 1–2 stay.
 
-### Brain config maps 1:1 (verified)
+### Brain config mapping — CORRECTED 2026-07-14 against the real 0.3.x API
 
-| Today (`agent-launch.ts`) | Agent SDK `Options` |
-|---|---|
-| `--append-system-prompt-file persona.txt` | `systemPrompt: { type:'preset', preset:'claude_code', append: <persona> }` |
-| `--add-dir context/` | `additionalDirectories: [context]` |
-| `--mcp-config mcp.json --strict-mcp-config` | `mcpServers: {...}`, `strictMcpConfig: true` |
-| `--model 'claude-opus-4-8[1m]'` | `model: 'claude-opus-4-8[1m]'` *(verify `[1m]` passes through)* |
-| `--dangerously-skip-permissions` | `permissionMode: 'bypassPermissions'` |
-| `brain/skills/*` | `skills: [...]` or `settingSources: ['project']` |
+> The table below originally claimed "maps 1:1 (verified)". It was **not** verified, and
+> two rows were wrong. Checked against the published SDK docs on 2026-07-14 (latest
+> `@anthropic-ai/claude-agent-sdk` = **0.3.209**). Corrections marked ⚠️.
 
-Seed-brains keep persona, MCP (Blotato stays wired), context, and skills — **no agent
-rewrite** (the whole reason not to adopt CrewAI).
+| Today (`agent-launch.ts`) | Agent SDK `Options` | Status |
+|---|---|---|
+| `--append-system-prompt-file persona.txt` | `systemPrompt: { type:'preset', preset:'claude_code', append: <persona> }` | ✅ confirmed |
+| `--add-dir context/` | `additionalDirectories: [context]` | ✅ confirmed |
+| `--mcp-config mcp.json` | `mcpServers: { name: { command?/url?/headers?/env? } }` | ✅ confirmed |
+| `--strict-mcp-config` | — | ⚠️ **no such option.** Not in 0.3.x `Options`. Isolation must come from `mcpServers` being explicit + `settingSources` omitted. |
+| `--model 'claude-opus-4-8[1m]'` | `model: 'claude-opus-4-8'` | ⚠️ **`[1m]` is a Claude Code CLI convention the SDK does not parse.** Pass the bare id. (Reported: opus-4-8 is 1M by default, so the window is retained — **verify empirically in the spike**, this is the single fact the whole 1M assumption rests on.) |
+| `--dangerously-skip-permissions` | `permissionMode: 'bypassPermissions'` | ✅ confirmed |
+| `brain/skills/*` | `skills: [...] \| 'all'`, or `settingSources: ['project']` | ✅ confirmed |
+
+### Feature 3's premise HOLDS — structured output is real
+
+Verified against the docs, and worth stating because a first research pass wrongly
+concluded the opposite:
+
+```ts
+for await (const m of query({ prompt, options: { outputFormat: { type: 'json_schema', schema } } })) {
+  if (m.type === 'result' && m.subtype === 'success' && m.structured_output) { /* validated */ }
+  else if (m.type === 'result' && m.subtype === 'error_max_structured_output_retries') { /* gave up */ }
+}
+```
+
+`SDKResultMessage` (success) carries `structured_output?`, `total_cost_usd`, `usage`,
+`modelUsage`, `session_id`, `num_turns`, `permission_denials`. So per-node cost
+(Phase 5.2) and Feature 2a/2b really do come free.
+
+### Auth does NOT change the billing model (the thing that would have killed it)
+
+> **"If you have already authenticated Claude Code by running `claude` in your terminal,
+> the SDK will use that authentication automatically."**
+
+`Query.accountInfo()` returns `{ subscriptionType, tokenSource, apiKeySource, … }`. So a
+port does **not** force a switch from the Claude Code subscription onto metered
+`ANTHROPIC_API_KEY` billing. This was the biggest latent risk in the whole proposal — an
+unmetered 12×Opus-1M fan-out flipping to per-token billing — and it does not apply.
+(Anthropic notes API-key auth is the *recommended* method for third-party distribution;
+irrelevant here, this is Ryan's own machine.)
+
+### ⚠️ The real open risk: does MCP OAuth survive the port?
+
+Blotato is an **OAuth HTTP MCP** (`https://mcp.blotato.com/mcp`) with **no API key**
+(confirmed: nothing in `env` or `~/.secrets.zsh`). The SDK's documented MCP auth story is
+*explicit* credentials — `headers: { Authorization: ... }` for HTTP/SSE, `env: {...}` for
+stdio. There is no documented way to hand it an OAuth session the Claude Code CLI already
+holds.
+
+If MCP OAuth does not come along, **sm-manager cannot be ported** — it is the only agent
+holding Blotato, and Blotato is the only thing that publishes. That directly contradicts
+this spec's "Seed-brains keep persona, MCP (Blotato stays wired)…" claim.
+
+**This is now the first question the spike must answer, ahead of everything else.** Port a
+Blotato-holding agent FIRST, not a simple one — a spike that ports a trivial agent proves
+nothing about the constraint that actually decides this.
+
+Seed-brains keep persona, context, and skills — **no agent rewrite** (the whole reason not
+to adopt CrewAI). MCP is the asterisk.
 
 ### Fitting a resolving `query()` to a poll-based engine
 Bridge via an in-memory status map so `stepRun` never changes:
@@ -316,11 +365,27 @@ Net: keep the framework; do 1 + 2c immediately (cheap, framework-agnostic); prov
 run; treat the SDK port as the high-upside transport upgrade with no agent rewrite.
 
 ## Open questions
-- Keep writing vault handoff notes in parallel under the SDK transport (audit trail) or
-  drop them for orchestrated runs?
-- `emit_schema` granularity: per-capability JSON schema vs. a lightweight required-keys
-  check to start?
-- Does `model: 'claude-opus-4-8[1m]'` pass the `[1m]` context suffix through the SDK?
+
+**Answered 2026-07-14** (docs check against 0.3.209 — no code written):
+- ~~Does `model: 'claude-opus-4-8[1m]'` pass the `[1m]` suffix through the SDK?~~ **No.**
+  `[1m]` is a CLI convention; pass `'claude-opus-4-8'`. Whether the 1M window is retained
+  by default still needs empirical confirmation in the spike.
+- ~~Is `outputFormat: json_schema` real in the Agent SDK?~~ **Yes** — `structured_output`
+  on the success result, `error_max_structured_output_retries` on give-up.
+- ~~Does porting change the billing model?~~ **No.** The SDK reuses an existing
+  `claude`-CLI authentication automatically.
+
+**Still open, in priority order:**
+1. **Does an OAuth'd HTTP MCP (Blotato) survive the port?** Blocking. If not, sm-manager
+   — the only agent that can publish — cannot move, and the "no agent rewrite" premise
+   fails at the one place it matters. Spike a Blotato-holding agent FIRST.
+2. Is `claude-opus-4-8` still 1M without the `[1m]` suffix? Measure, don't assume.
+3. `--strict-mcp-config` has no SDK equivalent. Does omitting `settingSources` give
+   equivalent isolation, or do stray user-scope MCP servers leak into orchestrated runs?
+4. Keep writing vault handoff notes in parallel under the SDK transport (audit trail) or
+   drop them for orchestrated runs?
+5. `emit_schema` granularity: per-capability JSON schema vs. a lightweight required-keys
+   check to start?
 
 ## Non-goals
 - No change to the Conductor planning phase, the DAG wiring, or the wave concurrency cap.
