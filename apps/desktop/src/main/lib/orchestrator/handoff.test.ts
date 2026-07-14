@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { clearDispatchNote, writeDispatchNote, readHandoffStatus } from "./handoff";
@@ -10,6 +10,29 @@ test("writeDispatchNote creates a pending note carrying run_id", () => {
 	writeDispatchNote(vault, { slug: "foreman", handoffId: "h1", runId: "r1", task: "mockups", facts: "FD sale" });
 	const s = readHandoffStatus(vault, "foreman", "h1");
 	expect(s).toEqual({ status: "pending", result: null });
+});
+
+test("writeDispatchNote renders upstream results into a ## Facts block the agent can read", () => {
+	// The last link of the result-passing chain: the engine hands upstream
+	// done-nodes to `dispatch`, the router renders them, and `facts` must land
+	// in the note BODY -- that block is the only thing the downstream agent
+	// actually reads as its input.
+	const vault = mkdtempSync(join(tmpdir(), "hq-"));
+	const facts = "### From strategist (n12)\nPLAN: 3 posts, Father's Day angle";
+	writeDispatchNote(vault, { slug: "repurposer", handoffId: "h9", runId: "r1", task: "draft the posts", facts });
+	const note = readFileSync(join(handoffInbox(vault, "repurposer"), "h9.md"), "utf8");
+	expect(note).toContain("## Task\ndraft the posts");
+	expect(note).toContain("## Facts");
+	expect(note).toContain("### From strategist (n12)");
+	expect(note).toContain("PLAN: 3 posts, Father's Day angle");
+});
+
+test("writeDispatchNote omits the ## Facts block entirely for a root node", () => {
+	const vault = mkdtempSync(join(tmpdir(), "hq-"));
+	writeDispatchNote(vault, { slug: "strategist", handoffId: "h10", runId: "r1", task: "write the plan" });
+	const note = readFileSync(join(handoffInbox(vault, "strategist"), "h10.md"), "utf8");
+	expect(note).toContain("## Task\nwrite the plan");
+	expect(note).not.toContain("## Facts");
 });
 
 test("readHandoffStatus reads result from a done note and is back-compat", () => {
