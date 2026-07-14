@@ -6,6 +6,12 @@ export type EngineDeps = {
 	pollStatus: (node: RunNode) => { status: string; result: string | null } | null;
 	now: () => number;
 	onUpdate: (run: RunManifest) => void;
+	/** Cap on simultaneously "running" nodes. Undefined => no limit
+	 *  (Infinity), so callers/tests that don't set it are unaffected. Heavy
+	 *  headless agent sessions (e.g. Opus 1M `claude -p`) starve the machine
+	 *  if every ready node dispatches at once; this makes stepRun dispatch in
+	 *  waves instead. */
+	maxConcurrent?: number;
 };
 
 const DONE_STATUSES = new Set(["done"]);
@@ -49,8 +55,15 @@ export function stepRun(
 		// note flips to "done" (-> done) or "rejected" (-> failed).
 	}
 
-	// 2) Dispatch the ready set.
+	// 2) Dispatch the ready set, capped at `maxConcurrent` simultaneously
+	// "running" nodes so heavy headless agent sessions launch in waves rather
+	// than all at once. Nodes left undispatched this tick simply stay
+	// "pending" -- they're only queued, and the collect loop above only
+	// applies the pickup timeout to "running" nodes, so queuing is safe.
+	const runningCount = nodes.filter((n) => n.status === "running").length;
+	let slots = (deps.maxConcurrent ?? Infinity) - runningCount;
 	for (const n of readySet(nodes)) {
+		if (slots <= 0) break;
 		const handoffId = n.handoff_id ?? `${run.run_id}-${n.id}`;
 		const target = nodes.find((x) => x.id === n.id)!;
 		target.handoff_id = handoffId;
@@ -62,6 +75,7 @@ export function stepRun(
 			target.status = "failed";
 			nodes = applyFailureSkips(nodes, n.id);
 		}
+		slots--;
 	}
 
 	const next = { ...run, nodes };

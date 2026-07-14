@@ -117,6 +117,42 @@ test("stepRun backfills a missing dispatchedAt entry instead of resetting the cl
 	expect(second.nodes.find((n) => n.id === "n2")!.status).toBe("skipped");
 });
 
+test("stepRun caps concurrent dispatch at maxConcurrent, running in waves", () => {
+	const three: RunManifest = {
+		...base,
+		nodes: [
+			{ id: "a", agent: "foreman", task: "ta", needs: [], status: "pending", handoff_id: null, result: null },
+			{ id: "b", agent: "foreman", task: "tb", needs: [], status: "pending", handoff_id: null, result: null },
+			{ id: "c", agent: "foreman", task: "tc", needs: [], status: "pending", handoff_id: null, result: null },
+		],
+	};
+	const dispatched: string[] = [];
+	const statuses = new Map<string, string>();
+	const deps: EngineDeps = {
+		dispatch: (n) => { dispatched.push(n.id); return { ok: true }; },
+		pollStatus: (n) => statuses.has(n.id) ? { status: statuses.get(n.id)!, result: null } : null,
+		now: () => 0,
+		onUpdate: () => {},
+		maxConcurrent: 1,
+	};
+	const dispatchedAt = new Map<string, number>();
+
+	// First tick: only one of the three ready nodes dispatches.
+	const first = stepRun(three, deps, 60_000, dispatchedAt);
+	expect(dispatched).toEqual(["a"]);
+	expect(first.nodes.find((n) => n.id === "a")!.status).toBe("running");
+	expect(first.nodes.find((n) => n.id === "b")!.status).toBe("pending");
+	expect(first.nodes.find((n) => n.id === "c")!.status).toBe("pending");
+
+	// Simulate "a" completing, then step again: the next pending node dispatches.
+	statuses.set("a", "done");
+	const second = stepRun(first, deps, 60_000, dispatchedAt);
+	expect(dispatched).toEqual(["a", "b"]);
+	expect(second.nodes.find((n) => n.id === "a")!.status).toBe("done");
+	expect(second.nodes.find((n) => n.id === "b")!.status).toBe("running");
+	expect(second.nodes.find((n) => n.id === "c")!.status).toBe("pending");
+});
+
 test("finalize marks partial when any node failed, done otherwise", () => {
 	const failed = { ...base, nodes: base.nodes.map((n) => ({ ...n, status: "failed" as const })) };
 	expect(finalize(failed).status).toBe("partial");

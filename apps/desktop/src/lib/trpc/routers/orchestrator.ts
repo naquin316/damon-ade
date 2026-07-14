@@ -1,12 +1,14 @@
 import { spawn as spawnProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { workspaces } from "@superset/local-db";
 import { observable } from "@trpc/server/observable";
 import { eq, isNotNull } from "drizzle-orm";
 import { buildAgentLaunchCommand } from "main/lib/agent-launch";
 import { resolveAgentWorktreePath } from "main/lib/agent-worktree";
+import { getSupersetHomeDir } from "main/lib/app-environment";
 import { localDb } from "main/lib/local-db";
 import { loadRoster } from "main/lib/orchestrator/capabilities";
 import { detectCycle, wireDependencies } from "main/lib/orchestrator/dag";
@@ -41,6 +43,11 @@ const PLAN_TIMEOUT_MS = 3 * 60 * 1000;
 // Runner loop tick interval + per-node dispatch timeout for a live run.
 const TICK_INTERVAL_MS = 3000;
 const NODE_TIMEOUT_MS = 15 * 60 * 1000;
+// Cap on simultaneously "running" headless agent sessions. Heavy Opus-1M
+// `claude -p` panes starve the Claude API / machine if every ready node in a
+// wave launches at once (most then hang 20+ min and time out); dispatching a
+// bounded number at a time keeps them responsive.
+const ORCH_MAX_CONCURRENT = 3;
 
 const bus = new EventEmitter();
 const emit = (e: OrchestratorEvent) => bus.emit("event", e);
@@ -87,19 +94,47 @@ function resolveAgentCwd(agentId: string): string {
 	return worktree || vaultRoot();
 }
 
+/** Directory headless agent panes' stdout/stderr are logged to, so a stuck
+ *  9-panes-at-once agent (or a capped wave of them) is debuggable instead of
+ *  silently swallowed by `stdio: "ignore"`. */
+function orchestratorLogDir(): string {
+	return join(getSupersetHomeDir(), "orchestrator-logs");
+}
+
+/** Turn a dispatch label into a filesystem-safe log file basename. */
+function sanitizeLogLabel(label: string): string {
+	return label.replace(/[^a-zA-Z0-9._-]+/g, "_");
+}
+
 /**
  * Spawn the agent's launch command as a headless, detached child process
  * (non-interactive `claude -p ...`) — mirrors the detached-spawn pattern in
  * self-update.ts. Best-effort: never throws out of the Spawner.
+ *
+ * stdout/stderr are appended to a per-label log file under
+ * `<ADE home>/orchestrator-logs/` rather than discarded, so a stuck agent
+ * (e.g. hung under concurrency starvation) can be inspected after the fact.
+ * If the log file can't be opened for any reason, falls back to
+ * `stdio: "ignore"` -- logging must never break the spawn.
  */
 const spawnHeadless: Spawner = ({ agentId, command, label }) => {
 	try {
 		const cwd = resolveAgentCwd(agentId);
+		let stdio: "ignore" | [ "ignore", number, number ] = "ignore";
+		try {
+			const logDir = orchestratorLogDir();
+			mkdirSync(logDir, { recursive: true });
+			const logPath = join(logDir, `${sanitizeLogLabel(label)}.log`);
+			const fd = openSync(logPath, "a");
+			stdio = ["ignore", fd, fd];
+		} catch (logError) {
+			console.error(`[orchestrator] failed to open log file for ${label}:`, logError);
+		}
 		const child = spawnProcess(command, {
 			shell: true,
 			cwd,
 			detached: true,
-			stdio: "ignore",
+			stdio,
 		});
 		child.unref();
 	} catch (error) {
@@ -230,6 +265,7 @@ function startRunLoop(run: RunManifest): void {
 			emit({ type: "run-updated", run: r });
 		},
 		timeoutMs: NODE_TIMEOUT_MS,
+		maxConcurrent: ORCH_MAX_CONCURRENT,
 		shouldCancel: () => cancelledRuns.has(runId),
 		tick: async () => {
 			await sleep(TICK_INTERVAL_MS);
