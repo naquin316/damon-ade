@@ -163,6 +163,20 @@
 		-webkit-font-smoothing: antialiased;
 	}
 
+	/* `user-select: none` above gives the app its native, non-selectable chrome,
+	 * but it INHERITS into text fields — and Chromium can't paste (or cut/copy/
+	 * select-all) into a field whose text isn't selectable, so Cmd+V silently
+	 * does nothing while plain typing still works. Re-enable selection on
+	 * editable elements only; the rest of the chrome stays unselectable. */
+	input,
+	textarea,
+	select,
+	[contenteditable="true"],
+	[contenteditable=""] {
+		user-select: text;
+		-webkit-user-select: text;
+	}
+
 	/* Ensure the React root fills the viewport and provides a positioning context */
 	/* biome-ignore lint/correctness/noUnknownTypeSelector: app is a custom element in index.html */
 	app {
