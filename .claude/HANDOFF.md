@@ -1,34 +1,118 @@
-# RyanOS — Handoff (2026-07-08)
+# Handoff — damon-ade (RyanOS) (2026-07-14 07:05)
 
-## Where we are
-RyanOS = personal fork of `per-simmons/damon-ade` (Electron ADE cockpit). Repo `~/Code/damon-ade`, origin `naquin316/damon-ade`. **Shipped & pushed & LIVE-VERIFIED (all 2026-07-08):** Phase 0+1, 2A, 2B-1, 2B-2, 3A, and now **Phase 3B (Mission Control)**. HEAD ≈ `18ec407`. Everything subagent-driven (impl + per-task review + final Opus whole-branch review = READY TO MERGE).
+## Goal
+The orchestrator is built and live-proven. What's left is **closing the loop**: finished
+agent work has no path out. Next session starts with RYA-166 (the Approval Queue
+consumer) — the single change that turns a proven engine into a system Ryan uses daily.
 
-- **Phase 3B (Mission Control) — SHIPPED & LIVE-PROVEN:** a top-level screen tiling 5 dashboards (Ops Deck, RubyPulse, myPKA, CatchPad, Code HQ) as `<webview>`s, config-driven via `~/.ade/mission-control.json` + tRPC `missionControl.getDashboards`. New route `_dashboard/mission-control/` + `MissionControlView` grid + `DashboardTile` + TopBar nav. Live: all 5 tiles render (Code HQ `file://` + CatchPad Access login both work); per-tile status/Retry/pop-out. The live check caught+fixed 2 reachability bugs (sub-frame fails via `isMainFrame`; error-page `did-finish-load` overwriting "unreachable" via a `failedRef` guard). Renderer + 1 tRPC router; **disjoint from SM/3A files**. Spec/plan: `docs/superpowers/{specs,plans}/2026-07-08-ryanos-phase-3b-mission-control*`.
-- **Parallel workstream:** the SM Team's Phase B runs in the `sm/phase-b` git worktree at `~/Code/damon-ade-sm` (isolated; merges to `main` when done). Its open item: trim SM skill descriptions (≤~60 chars) so they load under seeded launch.
+## State
+- Branch/commit: `main` @ `6759e77` — pushed to `origin`, **0 unpushed**. Dirty: only
+  `apps/desktop/src/shared/build-info.generated.ts` (generated build stamp — rewritten by
+  every dev/build/typecheck run; **do not commit it**, HEAD intentionally holds dev defaults).
+- Tests: **40 pass / 2 fail** in the orchestrator suite. The 2 are PRE-EXISTING
+  (Electron-import-under-`bun test`, part of ~49 repo-wide) — verified against a clean
+  tree, NOT caused by this session. Typecheck 14/14 clean. (STATUS.md's old "34/34" claim
+  was stale and has been corrected.)
+- Deployed: `/Applications/RyanOS.app` is the OLD packaged v0.2.0 (`2acc0eb`) and is QUIT.
+  This session ran `bun run dev` off `main`; that dev instance is also stopped.
+  **The installed app does NOT contain this session's work** — run dev or rebuild.
 
-- **Phase 3A (inter-agent handoff) — SHIPPED & LIVE-PROVEN:** reusable vault handoff-queue (`2. Areas/Handoffs/<recipient>/` + a send/receive `handoff` skill). First customer Store Cockpit → SM Manager. Seeded SM Manager as a live agent (Social Media team → **6 teams/12 agents**). Live proof: re-seeded, SM Manager read a pending handoff → drafted→graded 8.8/10→queued to the approval gate (HELD, nothing published), flipped the note pending→drafted; even caught a live-store fact drift + a duplicate + self-updated its MEMORY.md. Spec/plan: `docs/superpowers/{specs,plans}/2026-07-08-ryanos-phase-3a-*`. Backups `~/.ade.bak.1783496015`.
-- **⚠️ Cross-cutting finding for SM Team (NOT 3A):** SM Manager's own skills (brand-brief-hld, post-writer, post-grader, …) don't load as invocable Skills under seeded launch — their `description` fields are 258–518 chars, over the agentskills.io ~60 limit (the handoff skill at 56 loaded fine). SM worked around by reading the skill files directly. Fix = trim those descriptions (detail → body). Belongs to SM Team Phase C alongside the Blotato-in-seed OAuth item.
-- **Phase 2B-2 — LIVE-VERIFIED:** 9 authored superagent brains + brain-author skill; 9/9 boot authored, 2/2 greenfield generic, zero repo pollution, memory-safe. (Details in `[[project_ryanos]]`.)
+## Done this session
+- **Result-passing shipped and PROVEN LIVE on real work** (`1a61abd`). `EngineDeps.dispatch`
+  now takes `(node, upstream)`; upstream `result`s render into the dispatch note's
+  `## Facts`. Proof: the strategist raised a blocker ("Father's Day 2026 was 23 days ago"),
+  it travelled the pipe, and the repurposer **changed what it produced because of it** —
+  wrote all 3 posts evergreen-safe, self-graded 8.6–9.0, published nothing, escalated the
+  timing call. Both agents also *corrected their upstream*. This closes the spec's
+  "a done note's output becomes the next step's input" — the system's biggest hole.
+- **Crash resume shipped** (`1a61abd`) — `recoverInFlightRuns()` at boot; proved itself on
+  its very first boot by recovering a run (and immediately exposing its own bug, below).
+- **Three bugs found by the live run**, none findable by unit test: `5c01448` resurrection
+  of ABANDONED runs (only failed to spawn agents by luck — the wave cap was saturated);
+  `4f17f3f` a finished node silently DESTROYED by a YAML quoting slip; `25c9c13` paste
+  dead app-wide (`user-select:none` inherits into inputs).
+- **Plan-approval gate rebuilt** (`6759e77`) — 300-char tasks were rendered in a
+  single-line `<Input>`; you were authorising text you couldn't read. Also fixed a latent
+  flexbox bug that made the graph preview invisible on any plan >~4 nodes.
+- **Framework bake-off answered: KEEP the custom orchestrator** (not pydantic-ai/CrewAI).
+- STATUS.md `## Roadmap` rewritten (Phases 4–7 + The Conn boundary). The Conn v2 designed
+  + mockup published.
 
-- **0+1 / 2A / 2B-1:** see vault `[[project_ryanos]]`. Net: agents run in branch-isolated worktrees of their REAL repos; brain lives external under `~/.ade/agents/<id>/`, injected at launch; import-safe composition (no cross-dir `@`-import → no trust prompt); authored (persona/context/mcp, refreshable) vs learned (MEMORY.md/skills, never clobbered) split.
-- **2B-2 (code):** `seed-brains.ts` resolver (agent name → slug → `assets/seed-brains/<slug>/brain/`), wired into the **Electron-free** `agent-scaffold.ts` so a re-seed installs the AUTHORED brain instead of generic templates (via `writeIfEmpty`; **never touches MEMORY.md** — proven by a discriminating test); callers `agent-init.ts` + `agent-memory-backfill.ts`; `electron-builder.ts` bundles the assets. 49 tests green.
-- **2B-2 (content):** the `brain-author` skill (`.claude/skills/brain-author/`) + **9 manifests + 9 authored brains** (persona.txt Profile+Contract, context/CLAUDE.md Knowledge *pointers*, mcp.json, a few starter skills). Greenfield **Consulting + SaaS Build deferred** (absent from the slug map → generic template). Tessa is paper-only (verbatim hard gates, empty mcp.json, no live-order path).
-- **Tooling decision (2026-07-08):** RyanOS agents don't use local stdio MCP — real tools are direct scripts / claude.ai remote OAuth connectors / the ask-trotec HTTP bridge. So `mcp.json` holds **honest stubs** and each brain's `context/CLAUDE.md` has a `## Tool access` section documenting the real route. Codified in the brain-author skill.
+## In flight
+Nothing half-finished in this repo — all committed, merged to `main`, pushed.
 
-## Live re-seed — DONE (2026-07-08, agent-run + verified)
-Re-seeded (`mv ~/.ade` → `~/.ade.bak.1783491114`, relaunched dev). Verified on disk: 9/9 sourced agents booted AUTHORED, 2/2 greenfield GENERIC; authored context (`## Tool access`, 0 `@`-imports) + mcp.json installed; MEMORY.md = fresh template (memory-safe); all 6 repos on `ade/<role>-<id8>`; **zero ADE pollution** (no `.claude/skills` symlink in any main tree; all dirty files predate the reseed = pre-existing cmux/user/runtime); vault root clean. `getAuthoredBrainDir` resolves all 9 (bun test 2/2).
-- **Human-only leftover:** eyeball "no import prompt" when you open an agent terminal (file-level cause — 0 `@`-imports — verified gone across all 11).
-- **Backlog (minor):** the mv-based re-seed orphans prior `~/.claude/skills/ryanos-*` symlinks (pruned 3 dangling by hand); `setupAgentRepo`/re-seed should prune them.
+**Elsewhere:** `~/Code/the-conn` has **5 uncommitted modified files** (`agent/src/builders/
+brief-gen.mjs`, `system.mjs`, `run-agent.sh`, the plist, a test) from an EARLIER session —
+**not mine. Do not blow them away; ask Ryan before touching that tree.**
 
-## After the live gate
-- Invoke the `wrap` skill (update RyanOS `STATUS.md`); vault `[[project_ryanos]]` already flipped to "2B-2 shipped".
-- Known non-blocking Minors (from Opus review, all ship): mcp.json `_note` on tessa/scribe but bare `{}` elsewhere; Daily Planner voice folded into prose; 2 SKILL descriptions at the 60-char limit; `.gitkeep` copied into bundle; **braynee paths pinned to `2.1.10` will rot on update**; daily-planner cites `07-Meta/04-Personal` vault folders (QMD-verified, not repo-verifiable).
+## Decisions
+- **Keep the custom orchestrator; don't adopt pydantic-ai or CrewAI.** They're in-process
+  API-loop agent libraries; this orchestrates *full Claude Code brains* (personas, skills,
+  per-agent MCP, vault access). Adopting CrewAI means rewriting every seed-brain as a
+  role/goal/backstory string and losing the whole tool surface. Steal the ideas instead:
+  CrewAI's `Task.context` → result-passing; pydantic-ai's `ModelRetry`/durable-exec →
+  validation + resume.
+- **The dispatch instruction stays TASK-NEUTRAL.** It used to hardcode "it is a read-only
+  check, so take no real action" into EVERY dispatch — that would cap every future run at
+  read-only forever. How much action a node may take belongs in its `## Task` text, where
+  the smoke plan already states it per-agent.
+- **Handoff notes get TOLERANT parsing; the manifest stays strict.** The manifest is
+  machine-written (always valid YAML); notes are AGENT-written, so strict YAML silently
+  destroyed completed work. Strictness bought nothing (no second reader) and cost real work.
+- **Recovery is bounded by manifest mtime.** The loop rewrites the manifest every tick, so
+  mtime is an exact liveness signal: untouched longer than a node timeout ⇒ abandoned, not
+  resumable. "Resume anything marked running" resurrects work Ryan walked away from.
+- **RYA-166 before triggers; cost before triggers.** Triggers while output is trapped just
+  manufacture backlog; an unmetered 12×Opus-1M fan-out on a cron is how you find out the
+  expensive way.
+- **No second dashboard.** The phone surface is The Conn v2 (already on its roadmap, and a
+  new one would violate the 2026-07-12 LifeOS consolidation decision). damon-ade owns the
+  engine, The Conn owns the surface, **the vault is the bus**.
 
-## Next: Phase 3
-Deep inter-agent collaboration/handoff (roster awareness exists; the pilot personas already negotiate boundaries — Store Cockpit edits existing products, Foreman creates new, each hands off). Embed dashboards ([[project-opsdeck-dashboard]], [[project_rubypulse]], [[project_mypka-cockpit]], [[project_catchpad-remote-dashboard]]) as panels + [[project-codehq-dashboard]] awareness.
+## Next steps (in order)
+1. **RYA-166 — build the Approval Queue consumer.** Nothing reads `status: approved`, so
+   approving is meaningless and 16 posts sit stale (some 6 days old). **This is THE unlock:
+   the vault lives in iCloud and already syncs to Obsidian on Ryan's phone, so the watcher
+   ALONE delivers phone approval — he edits one word in Obsidian mobile and it ships.**
+   Decide the trigger (Hermes cron sweep vs. an on-demand `/drain-queue` skill vs. a
+   file-watcher). Hard constraints: it must NEVER approve anything itself (only ship what
+   is already explicitly marked approved), and it should surface "approved but no media"
+   rather than fail (IG needs a media URL at approval time).
+2. **RYA-167** — the orphaned "reply: approved / edit / skip" prompt on headless-written
+   notes. Only becomes true once RYA-166 lands; do 166 first or both together.
+3. **The Conn v1 deploy** (`~/Code/the-conn`, Task 13, human-gated,
+   `docs/superpowers/plans/v1-deploy-runbook.md`) — needs Ryan: 5 secrets in
+   `~/.secrets.zsh`, `wrangler d1 create`, deploy, domain swap off the v0 tunnel, launchd,
+   retire v0. Gates RYA-168.
+4. **RYA-168 — The Conn v2 approvals surface.** Design approved + mockup done; see its spec.
+5. **RYA-158 — Agent SDK transport spike** behind `ORCH_TRANSPORT=sdk`. Highest upside: the
+   YAML failure fixed in `4f17f3f` is exactly what `outputFormat: json_schema` makes
+   structurally impossible, and it's the only path to per-node cost (needed before triggers).
 
-## Conventions
-- Commit direct to `main`, prefix `BRAYNEE_ALLOW_MAIN_COMMITS=1`. Push to `origin`. Actions disabled on the fork.
-- **Heads-up:** a concurrent "Social Media Team" workstream also commits docs to this `main` (markdown only, no file overlap with 2B-2). Scope reviews/diffs to your own files.
-- Build subagent-driven with the review loop — it caught real bugs in 2B-2 (dev-path resolution, a toothless MEMORY.md-safety test, systemic vault-path formatting). Keep it.
-- SDD progress ledger: `.superpowers/sdd/progress.md`. Full context in vault `[[project_ryanos]]`.
+## Read first
+- `STATUS.md` — the rewritten `## Roadmap` (Phases 4–7, the dependency order, The Conn boundary)
+- `docs/superpowers/specs/2026-07-14-orchestrator-durability-upgrades-design.md` — framework analysis + Features 1/2/3 + the SDK migration path
+- `~/Code/the-conn/docs/superpowers/specs/2026-07-14-conn-v2-approvals-design.md` — v2 design; mockup: https://claude.ai/code/artifact/0c36a1ac-7e6e-4a8c-9f4b-a63d884effa1
+- `apps/desktop/src/main/lib/orchestrator/engine.ts` + `handoff.ts` — the DI seam and the tolerant parser
+- Linear (Claude Code project): RYA-158, RYA-166, RYA-167, RYA-168
+
+## Gotchas
+- **Don't commit `build-info.generated.ts`** — HEAD holds dev defaults on purpose; every
+  typecheck/dev run rewrites it with a hash that's stale seconds later.
+- **`STATUS.md` is gitignored** (`~/.config/git/ignore:2`) — disk-only, never commit it.
+- **Convention is direct-to-main**: `BRAYNEE_ALLOW_MAIN_COMMITS=1 git commit …` (a hook
+  blocks bare main commits). This session used a feature branch + fast-forward instead;
+  same end state, but main is the norm here.
+- **Main-process changes need a full restart** — no hot reload. And the packaged
+  `/Applications/RyanOS.app` shares `~/.ade` + the single-instance lock with `bun run dev`,
+  so **quit the packaged app before running dev** or the dev instance exits immediately.
+- **`terminal-host.js` / `pty-subprocess.js` survive an app quit BY DESIGN** (boot calls
+  `reconcileDaemonSessions()` to re-adopt them). Don't kill them — they host live agent terminals.
+- **A real (non-smoke) goal makes agents do REAL work** — drafts land in the Approval Queue.
+  Read-only-ness lives in the node's `## Task` text, NOT in the dispatch instruction.
+- **The vault-search hook blocks grep/find on vault paths** — use QMD, or read exact files
+  with node/Read. A single command containing both `grep` and a vault path is rejected.
+- Approval Queue truth right now: **16 pending** (Ryan's 2026-07-08 personal drafts),
+  1 scheduled, 4 skipped (tonight's 3 test drafts + 1 prior). **Nothing was ever published.**
+- A dead Father's Day plan artifact remains at
+  `2. Areas/Social Media/Content Calendar/2026-07-14-week.md` — Ryan hasn't decided its fate.
