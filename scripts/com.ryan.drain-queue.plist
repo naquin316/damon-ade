@@ -3,14 +3,21 @@
 <!--
   Approval Queue consumer (RYA-166).
 
-  Every 15 minutes: scan `2. Areas/Social Media/Approval Queue/` and hand anything
-  Ryan marked `status: approved` to sm-manager's post-scheduler. The vault is in
-  iCloud and syncs to Obsidian on his phone, so this agent IS the phone-approval
+  Every 15 minutes: scan `2. Areas/Social Media/Approval Queue/` and schedule
+  anything Ryan marked `status: approved` via the Blotato REST API. The vault is in
+  iCloud and syncs to Obsidian on his phone, so this timer IS the phone-approval
   path: edit one word on the couch, it ships within 15 minutes. No app required —
   which is why this is launchd and not a watcher inside RyanOS.
 
   NOTE the --ship flag. Without it the script is a dry run; this is the one caller
-  that is allowed to actually schedule. It still cannot approve anything.
+  allowed to actually schedule. It still cannot approve anything.
+
+  Runs via drain-queue.sh, not bun directly, because the wrapper resolves
+  BLOTATO_API_KEY from ~/.secrets.zsh. `op run` is NOT used here: it needs an
+  interactive unlock, and launchd has no one to touch the sensor.
+
+  PRECONDITION — this timer no-ops until the key is resolvable:
+    echo 'export BLOTATO_API_KEY="..."' >> ~/.secrets.zsh    # see drain-queue.sh
 
   Install:
     cp scripts/com.ryan.drain-queue.plist ~/Library/LaunchAgents/
@@ -26,8 +33,8 @@
     <string>com.ryan.drain-queue</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/ryannaquin/.bun/bin/bun</string>
-        <string>/Users/ryannaquin/Code/damon-ade/apps/desktop/scripts/drain-queue.ts</string>
+        <string>/bin/bash</string>
+        <string>/Users/ryannaquin/Code/damon-ade/scripts/drain-queue.sh</string>
         <string>--ship</string>
     </array>
     <key>WorkingDirectory</key>

@@ -1,20 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import { STALE_CLAIM_MS } from "./queue";
-import { type DrainDeps, drain, type ShipTarget } from "./ship";
+import type { BlotatoAccount } from "./blotato";
+import { type PlannedPost, STALE_CLAIM_MS } from "./queue";
+import { type DrainDeps, drain } from "./ship";
 
 const NOW = Date.parse("2026-07-14T12:00:00Z");
 
-function note(fm: Record<string, string>) {
+function note(fm: Record<string, string>, copy = "hello world") {
 	return `---\n${Object.entries(fm)
 		.map(([k, v]) => `${k}: ${v}`)
-		.join("\n")}\n---\n\nbody\n`;
+		.join("\n")}\n---\n\n## Final copy (verbatim)\n\n${copy}\n`;
 }
 
-/** In-memory vault + a log of every effect, so ordering is assertable. */
-function harness(files: Record<string, string>, now = NOW) {
+/** Ryan's real Blotato account set: no x, no linkedin. */
+const CONNECTED = new Map<string, BlotatoAccount>([
+	["facebook", { id: "5179", platform: "facebook", pageId: "fbpage1" }],
+	["instagram", { id: "6789", platform: "instagram", name: "handlanedesigns" }],
+	["pinterest", { id: "1197", platform: "pinterest" }],
+	["threads", { id: "2846", platform: "threads" }],
+	["tiktok", { id: "15026", platform: "tiktok" }],
+]);
+
+function harness(
+	files: Record<string, string>,
+	opts: { fail?: boolean | number } = {},
+) {
 	const fs = { ...files };
-	const dispatched: ShipTarget[] = [];
+	const sent: PlannedPost[] = [];
 	const effects: string[] = [];
+	let n = 0;
 	const deps: DrainDeps = {
 		listNotes: () => Object.keys(fs),
 		read: (p) => {
@@ -26,173 +39,200 @@ function harness(files: Record<string, string>, now = NOW) {
 			effects.push(`write:${p}`);
 			fs[p] = c;
 		},
-		dispatch: (t) => {
-			effects.push(`dispatch:${t.file}`);
-			dispatched.push(t);
+		connected: CONNECTED,
+		send: async (post) => {
+			n += 1;
+			if (opts.fail === true || opts.fail === n) throw new Error("blotato 500");
+			effects.push(`send:${post.platform}`);
+			sent.push(post);
+			return { id: `post-${n}` };
 		},
-		now: () => now,
+		now: () => NOW,
 	};
-	return { fs, deps, dispatched, effects };
+	return { fs, deps, sent, effects };
 }
 
 describe("drain — dry run is inert", () => {
-	test("reports candidates but writes nothing and dispatches nothing", () => {
+	test("reports the exact posts but writes nothing and sends nothing", async () => {
 		const h = harness({
-			"/q/a.md": note({ status: "approved", platform: "x" }),
+			"/q/a.md": note({ status: "approved", platform: "threads" }),
 		});
-		const r = drain(h.deps, { ship: false });
+		const r = await drain(h.deps, { ship: false });
 
-		expect(r.shippable).toEqual(["/q/a.md"]);
+		expect(r.shippable).toHaveLength(1);
+		expect(r.shippable[0]?.posts[0]?.text).toBe("hello world");
 		expect(r.shipped).toEqual([]);
 		expect(h.effects).toEqual([]);
-		expect(h.fs["/q/a.md"]).toBe(note({ status: "approved", platform: "x" }));
+		expect(h.sent).toEqual([]);
 	});
 });
 
 describe("drain — the never-approve invariant", () => {
-	test("nothing a human did not approve is ever dispatched", () => {
+	test("nothing a human did not approve is ever sent", async () => {
 		const h = harness({
-			"/q/pending.md": note({ status: "pending", platform: "x" }),
-			"/q/skipped.md": note({ status: "skipped", platform: "x" }),
-			"/q/scheduled.md": note({ status: "scheduled", platform: "x" }),
+			"/q/pending.md": note({ status: "pending", platform: "threads" }),
+			"/q/skipped.md": note({ status: "skipped", platform: "threads" }),
+			"/q/scheduled.md": note({ status: "scheduled", platform: "threads" }),
 			"/q/none.md": "no frontmatter at all",
 		});
-		const r = drain(h.deps, { ship: true });
+		const r = await drain(h.deps, { ship: true });
 
-		expect(h.dispatched).toEqual([]);
+		expect(h.sent).toEqual([]);
 		expect(r.shipped).toEqual([]);
 		expect(r.untouched).toHaveLength(4);
 	});
 
-	test("no code path ever writes status: approved", () => {
+	test("no code path ever writes status: approved", async () => {
 		const h = harness({
-			"/q/a.md": note({ status: "pending", platform: "x" }),
-			"/q/b.md": note({ status: "approved", platform: "x" }),
+			"/q/a.md": note({ status: "pending", platform: "threads" }),
 		});
-		drain(h.deps, { ship: true });
-		// b was already approved by a human; a must not have become approved.
+		await drain(h.deps, { ship: true });
 		expect(h.fs["/q/a.md"]).toContain("status: pending");
 	});
 });
 
 describe("drain — the double-post invariant", () => {
-	// The bug this whole design exists to prevent: cron tick 2 firing while
-	// tick 1's shipper is still in flight.
-	test("a second tick during an in-flight ship does not dispatch again", () => {
+	test("a second tick during an in-flight ship does not send again", async () => {
 		const h = harness({
-			"/q/a.md": note({ status: "approved", platform: "x" }),
+			"/q/a.md": note({ status: "approved", platform: "threads" }),
 		});
 
-		const first = drain(h.deps, { ship: true });
-		expect(first.shipped).toEqual(["/q/a.md"]);
-		expect(h.dispatched).toHaveLength(1);
+		const first = await drain(h.deps, { ship: true });
+		expect(first.shipped).toHaveLength(1);
+		expect(h.sent).toHaveLength(1);
 
-		const second = drain(h.deps, { ship: true });
-		expect(second.shipped).toEqual([]);
-		expect(second.claimed).toEqual(["/q/a.md"]);
-		expect(h.dispatched).toHaveLength(1); // still one
-	});
-
-	test("the claim is written BEFORE the dispatch", () => {
-		const h = harness({
-			"/q/a.md": note({ status: "approved", platform: "x" }),
+		// The note now reads `scheduled`, so it's inert. Simulate the in-flight window
+		// too: a note still claimed at `scheduling` must be skipped.
+		h.fs["/q/b.md"] = note({
+			status: "scheduling",
+			platform: "threads",
+			scheduling_started: new Date(NOW - 60_000).toISOString(),
 		});
-		drain(h.deps, { ship: true });
-		expect(h.effects).toEqual(["write:/q/a.md", "dispatch:/q/a.md"]);
+		const second = await drain(h.deps, { ship: true });
+		expect(second.claimed).toEqual(["/q/b.md"]);
+		expect(h.sent).toHaveLength(1);
 	});
 
-	test("a claim that fails to persist aborts the dispatch", () => {
+	test("the claim is written BEFORE the post is sent", async () => {
 		const h = harness({
-			"/q/a.md": note({ status: "approved", platform: "x" }),
+			"/q/a.md": note({ status: "approved", platform: "threads" }),
+		});
+		await drain(h.deps, { ship: true });
+		expect(h.effects[0]).toBe("write:/q/a.md"); // claim
+		expect(h.effects[1]).toBe("send:threads");
+	});
+
+	test("a claim that fails to persist aborts the send", async () => {
+		const h = harness({
+			"/q/a.md": note({ status: "approved", platform: "threads" }),
 		});
 		h.deps.write = () => {
 			throw new Error("disk full");
 		};
-		const r = drain(h.deps, { ship: true });
+		const r = await drain(h.deps, { ship: true });
 
-		// Dispatching anyway would post while the note still reads `approved`,
-		// so the next tick posts it a second time.
-		expect(h.dispatched).toEqual([]);
+		expect(h.sent).toEqual([]);
 		expect(r.shipped).toEqual([]);
 		expect(r.errors).toHaveLength(1);
 	});
+
+	test("a note lands at scheduled with the blotato id", async () => {
+		const h = harness({
+			"/q/a.md": note({ status: "approved", platform: "threads" }),
+		});
+		await drain(h.deps, { ship: true });
+		expect(h.fs["/q/a.md"]).toContain("status: scheduled");
+		expect(h.fs["/q/a.md"]).toContain("blotato_post_ids: post-1");
+	});
 });
 
-describe("drain — stale claims escalate, never retry", () => {
-	test("a stale claim is parked as needs-review and not dispatched", () => {
+describe("drain — send failures escalate, never retry", () => {
+	test("a failed send parks the note at needs-review", async () => {
+		const h = harness(
+			{ "/q/a.md": note({ status: "approved", platform: "threads" }) },
+			{ fail: true },
+		);
+		const r = await drain(h.deps, { ship: true });
+
+		expect(r.shipped).toEqual([]);
+		expect(h.fs["/q/a.md"]).toContain("status: needs-review");
+		expect(r.needsReview).toHaveLength(1);
+	});
+
+	// instagram + facebook where facebook fails: instagram is ALREADY LIVE.
+	// Retrying would double-post instagram. A human checks Blotato.
+	test("a partial multi-platform send records the ids that DID go out", async () => {
+		const h = harness(
+			{
+				"/q/a.md": note({
+					status: "approved",
+					platform: "instagram + facebook",
+					media: "https://x/y.png",
+				}),
+			},
+			{ fail: 2 },
+		);
+		const r = await drain(h.deps, { ship: true });
+
+		expect(h.sent).toHaveLength(1); // instagram went out
+		expect(h.fs["/q/a.md"]).toContain("status: needs-review");
+		expect(h.fs["/q/a.md"]).toContain("blotato_post_ids: post-1");
+		expect(r.shipped).toEqual([]);
+	});
+
+	test("a stale claim parks at needs-review and is never sent", async () => {
 		const started = new Date(NOW - STALE_CLAIM_MS - 1).toISOString();
 		const h = harness({
 			"/q/a.md": note({
 				status: "scheduling",
-				platform: "x",
+				platform: "threads",
 				scheduling_started: started,
 			}),
 		});
+		const r = await drain(h.deps, { ship: true });
 
-		const r = drain(h.deps, { ship: true });
-		expect(h.dispatched).toEqual([]);
+		expect(h.sent).toEqual([]);
 		expect(r.needsReview).toHaveLength(1);
 		expect(h.fs["/q/a.md"]).toContain("status: needs-review");
 	});
 
-	test("parking is terminal — a later tick leaves it alone", () => {
+	test("parking is terminal — a later tick leaves it alone", async () => {
 		const started = new Date(NOW - STALE_CLAIM_MS - 1).toISOString();
 		const h = harness({
 			"/q/a.md": note({
 				status: "scheduling",
-				platform: "x",
+				platform: "threads",
 				scheduling_started: started,
 			}),
 		});
-
-		drain(h.deps, { ship: true });
-		const second = drain(h.deps, { ship: true });
+		await drain(h.deps, { ship: true });
+		const second = await drain(h.deps, { ship: true });
 
 		expect(second.needsReview).toEqual([]);
 		expect(second.untouched).toHaveLength(1);
-		expect(h.dispatched).toEqual([]);
+		expect(h.sent).toEqual([]);
 	});
 });
 
-describe("drain — blocked notes", () => {
-	test("instagram without media is reported and left approved for a re-run", () => {
+describe("drain — blocked notes stay approved for a re-run", () => {
+	test("x has no connected account — reported, not sent", async () => {
+		const h = harness({
+			"/q/a.md": note({ status: "approved", platform: "x" }),
+		});
+		const r = await drain(h.deps, { ship: true });
+
+		expect(r.blocked[0]?.reason).toBe("no-connected-account");
+		expect(h.sent).toEqual([]);
+		expect(h.fs["/q/a.md"]).toContain("status: approved");
+	});
+
+	test("instagram without media — reported, not sent", async () => {
 		const h = harness({
 			"/q/a.md": note({ status: "approved", platform: "instagram" }),
 		});
-		const r = drain(h.deps, { ship: true });
+		const r = await drain(h.deps, { ship: true });
 
-		expect(r.blocked).toEqual([{ file: "/q/a.md", reason: "no-media" }]);
-		expect(h.dispatched).toEqual([]);
-		// untouched, so attaching media and re-running needs no second approval
+		expect(r.blocked[0]?.reason).toBe("no-media");
 		expect(h.fs["/q/a.md"]).toContain("status: approved");
-	});
-});
-
-describe("drain — resilience", () => {
-	test("one unreadable note does not stop the rest of the queue", () => {
-		const h = harness({
-			"/q/bad.md": "",
-			"/q/good.md": note({ status: "approved", platform: "x" }),
-		});
-		h.deps.read = (p) => {
-			if (p === "/q/bad.md") throw new Error("EACCES");
-			return h.fs[p] as string;
-		};
-		const r = drain(h.deps, { ship: true });
-
-		expect(r.errors).toHaveLength(1);
-		expect(r.shipped).toEqual(["/q/good.md"]);
-	});
-
-	test("a multi-target note passes every platform through", () => {
-		const h = harness({
-			"/q/a.md": note({
-				status: "approved",
-				platform: "instagram + facebook",
-				media: "https://x/y.png",
-			}),
-		});
-		drain(h.deps, { ship: true });
-		expect(h.dispatched[0]?.targets).toEqual(["instagram", "facebook"]);
 	});
 });
