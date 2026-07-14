@@ -25,13 +25,39 @@ const MAX_ITERS = 1_000_000;
  */
 export async function runToCompletion(
 	start: RunManifest,
-	deps: EngineDeps & { timeoutMs: number; tick: () => Promise<void> },
+	deps: EngineDeps & {
+		timeoutMs: number;
+		tick: () => Promise<void>;
+		/**
+		 * Consulted at the TOP of every iteration, before `stepRun` runs. When
+		 * it returns true the loop breaks immediately without calling
+		 * `stepRun`/`onUpdate` for that iteration — this closes the race where a
+		 * cancel flag flips mid-`tick`-sleep and the loop would otherwise run
+		 * one more full `stepRun` (dispatching new panes, writing a "running"
+		 * manifest) before noticing. The caller owns writing/asserting the
+		 * run's terminal (e.g. "cancelled") status on disk; this function
+		 * neither finalizes nor persists anything for a cancelled run.
+		 */
+		shouldCancel?: () => boolean;
+	},
 ): Promise<RunManifest> {
 	let run = start;
 	const dispatchedAt = new Map<string, number>();
+	let cancelled = false;
 	for (let i = 0; i < MAX_ITERS && !isTerminal(run); i++) {
+		if (deps.shouldCancel?.()) {
+			cancelled = true;
+			break;
+		}
 		run = stepRun(run, deps, deps.timeoutMs, dispatchedAt);
 		if (!isTerminal(run)) await deps.tick();
+	}
+	if (cancelled) {
+		// Broke early on a cancel signal, not on reaching a terminal state or
+		// the MAX_ITERS backstop. Return the run as-is -- do NOT finalize (that
+		// would falsely mark it "done"/"partial") and do NOT call onUpdate (the
+		// caller re-asserts the cancelled status on disk itself).
+		return run;
 	}
 	if (!isTerminal(run)) {
 		// The backstop tripped without the run ever reaching a terminal state.

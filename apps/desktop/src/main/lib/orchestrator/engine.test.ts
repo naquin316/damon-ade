@@ -56,6 +56,24 @@ test("stepRun times out a stuck running node and skips its dependents", () => {
 	expect(out.nodes.find((n) => n.id === "n2")!.status).toBe("skipped");
 });
 
+test("stepRun does NOT time out a node whose note is drafted (blocks on the agent's own gate)", () => {
+	const running: RunManifest = {
+		...base,
+		nodes: base.nodes.map((n) => n.id === "n1" ? { ...n, status: "running", handoff_id: "h1" } : n),
+	};
+	const deps: EngineDeps = {
+		dispatch: () => ({ ok: true }),
+		// The agent picked up its note and is working / awaiting its own
+		// human gate -- "drafted" is non-terminal but NOT "pending".
+		pollStatus: () => ({ status: "drafted", result: null }),
+		now: () => 1_000_000_000, // far past any timeoutMs
+		onUpdate: () => {},
+	};
+	const out = stepRun(running, deps, 60_000, new Map([["n1", 0]]));
+	expect(out.nodes.find((n) => n.id === "n1")!.status).toBe("running");
+	expect(out.nodes.find((n) => n.id === "n2")!.status).toBe("pending");
+});
+
 test("stepRun fails a rejected running node and skips its dependent", () => {
 	const running: RunManifest = {
 		...base,

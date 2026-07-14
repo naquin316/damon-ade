@@ -27,7 +27,13 @@ export function stepRun(
 		} else if (s && FAIL_STATUSES.has(s.status)) {
 			n.status = "failed";
 			nodes = applyFailureSkips(nodes, n.id);
-		} else {
+		} else if (!s || s.status === "pending") {
+			// Never picked up (no note yet, or the note is still "pending"): this
+			// is the only case the per-node timeout applies to. Any other
+			// non-terminal status (e.g. "drafted") means the agent has picked up
+			// its dispatch note and is working / awaiting its own human gate — the
+			// run BLOCKS on that gate rather than timing it out (see the `else`
+			// below).
 			let started = dispatchedAt.get(n.id);
 			if (started === undefined) {
 				started = deps.now();
@@ -38,6 +44,9 @@ export function stepRun(
 				nodes = applyFailureSkips(nodes, n.id);
 			}
 		}
+		// else: some other non-terminal status (e.g. "drafted") — leave the node
+		// "running" and exempt it from the timeout; it stays running until the
+		// note flips to "done" (-> done) or "rejected" (-> failed).
 	}
 
 	// 2) Dispatch the ready set.

@@ -160,3 +160,50 @@ test("runToCompletion still terminates (as partial) via per-node timeout, withou
 	expect(final.nodes.find((n) => n.id === "n1")?.status).toBe("failed");
 	expect(final.nodes.find((n) => n.id === "n2")?.status).toBe("skipped");
 });
+
+test("runToCompletion stops on shouldCancel without finishing and without dispatching further", async () => {
+	// 2-node chain that would normally run to completion in a couple of
+	// ticks. `shouldCancel` flips true after the first tick's sleep -- the
+	// same moment a real cancelRun() call would land mid-tick-sleep. The loop
+	// must notice this BEFORE the next stepRun, i.e. it must not dispatch n2
+	// (or re-dispatch n1) and must not reach a terminal/finalized state.
+	const run: RunManifest = {
+		run_id: "r-cancel",
+		goal: "g",
+		status: "running",
+		created: "2026-07-13",
+		summary: null,
+		nodes: [
+			{ id: "n1", agent: "foreman", task: "t1", needs: [], status: "pending", handoff_id: null, result: null },
+			{ id: "n2", agent: "store", task: "t2", needs: ["n1"], status: "pending", handoff_id: null, result: null },
+		],
+	};
+	const dispatched: string[] = [];
+	let ticks = 0;
+	let cancel = false;
+	const onUpdateCalls: string[] = [];
+	const final = await runToCompletion(run, {
+		dispatch: (n) => {
+			dispatched.push(n.id);
+			return { ok: true };
+		},
+		// n1 never reports done -- if the loop kept going past the cancel
+		// point it would just keep stepping n1, proving the cancel check (not
+		// node completion) is what stopped it.
+		pollStatus: () => ({ status: "pending", result: null }),
+		now: () => 0,
+		onUpdate: (r) => onUpdateCalls.push(r.status),
+		timeoutMs: 1_000_000, // never fires -- only shouldCancel can end this run
+		shouldCancel: () => cancel,
+		tick: async () => {
+			ticks += 1;
+			cancel = true; // simulate cancelRun() landing during this tick's sleep
+		},
+	});
+	expect(final.status).toBe("running"); // never finalized to done/partial
+	expect(final.nodes.every((n) => n.status !== "done")).toBe(true);
+	expect(dispatched).toEqual(["n1"]); // n2 never dispatched after the cancel
+	expect(ticks).toBe(1);
+	// onUpdate must not have been called again after the cancel-triggering tick.
+	expect(onUpdateCalls.length).toBe(1);
+});

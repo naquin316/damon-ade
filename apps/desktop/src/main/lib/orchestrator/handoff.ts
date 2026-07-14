@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { splitFrontmatter, joinFrontmatter } from "./frontmatter";
 import { handoffInbox } from "./paths";
@@ -22,6 +22,25 @@ export function writeDispatchNote(
 	};
 	const body = `## Task\n${args.task}\n${args.facts ? `\n## Facts\n${args.facts}\n` : ""}`;
 	writeFileSync(join(inbox, filename), joinFrontmatter(data, body), "utf8");
+}
+
+/**
+ * Delete a stale dispatch note (from either the inbox or its `done/`
+ * subfolder) so a subsequent `writeDispatchNote` for the same handoffId
+ * isn't defeated by the dedup check. Best-effort: a retry must never be
+ * blocked by a filesystem hiccup while clearing the old note, so this never
+ * throws.
+ */
+export function clearDispatchNote(vault: string, slug: string, handoffId: string): void {
+	try {
+		const inbox = handoffInbox(vault, slug);
+		const filename = `${handoffId}.md`;
+		for (const p of [join(inbox, filename), join(inbox, "done", filename)]) {
+			if (existsSync(p)) unlinkSync(p);
+		}
+	} catch {
+		// best-effort; never throw
+	}
 }
 
 export function readHandoffStatus(

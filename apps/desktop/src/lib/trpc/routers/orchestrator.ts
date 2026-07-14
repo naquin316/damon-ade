@@ -14,6 +14,7 @@ import {
 	type Spawner,
 } from "main/lib/orchestrator/dispatch";
 import {
+	clearDispatchNote,
 	readHandoffStatus,
 	writeDispatchNote,
 } from "main/lib/orchestrator/handoff";
@@ -26,6 +27,7 @@ import { getWorkspaceRuntimeRegistry } from "main/lib/workspace-runtime";
 import {
 	type OrchestratorEvent,
 	type RunManifest,
+	type RunNode,
 	runNodeSchema,
 } from "shared/orchestrator/types";
 import { z } from "zod";
@@ -165,23 +167,56 @@ function startRunLoop(run: RunManifest): void {
 			emit({ type: "run-updated", run: r });
 		},
 		timeoutMs: NODE_TIMEOUT_MS,
+		shouldCancel: () => cancelledRuns.has(runId),
 		tick: async () => {
-			if (cancelledRuns.has(runId)) throw new Error("run-cancelled");
 			await sleep(TICK_INTERVAL_MS);
 		},
-	}).catch((error) => {
-		if (cancelledRuns.has(runId)) {
-			// Expected: cancelRun already wrote the "cancelled" manifest + event.
-			cancelledRuns.delete(runId);
-			return;
-		}
-		const message = error instanceof Error ? error.message : String(error);
-		console.error(`[orchestrator] run ${runId} loop error:`, message);
-		emit({ type: "run-error", runId, message });
 	})
-	.finally(() => {
-		activeRuns.delete(runId);
-	});
+		.then(() => {
+			if (!cancelledRuns.has(runId)) return;
+			// The loop broke on `shouldCancel` rather than running to a terminal
+			// state. `cancelRun` already wrote a "cancelled" manifest when the
+			// flag was set, but a `stepRun` that was already in flight at that
+			// moment can still have clobbered it via `onUpdate` before the next
+			// iteration's `shouldCancel` check took effect. Re-assert
+			// "cancelled" as authoritative now that the loop has fully unwound.
+			const current = readManifest(vaultRoot(), runId);
+			if (current) {
+				const cancelled: RunManifest = { ...current, status: "cancelled" };
+				writeManifest(vaultRoot(), cancelled);
+				emit({ type: "run-updated", run: cancelled });
+			}
+			cancelledRuns.delete(runId);
+		})
+		.catch((error) => {
+			const message = error instanceof Error ? error.message : String(error);
+			console.error(`[orchestrator] run ${runId} loop error:`, message);
+			emit({ type: "run-error", runId, message });
+		})
+		.finally(() => {
+			activeRuns.delete(runId);
+		});
+}
+
+/** Node ids transitively depending on `rootId` via `needs` edges (mirrors the
+ *  fixed-point traversal `applyFailureSkips` in dag.ts uses to compute which
+ *  nodes to skip on a failure). Used by `retryNode` to find the dependents a
+ *  failure previously skipped, so a retry can reset them alongside the node
+ *  it targets. */
+function transitiveDependents(nodes: RunNode[], rootId: string): Set<string> {
+	const dependents = new Set<string>();
+	let changed = true;
+	while (changed) {
+		changed = false;
+		for (const n of nodes) {
+			if (dependents.has(n.id)) continue;
+			if (n.needs.some((d) => d === rootId || dependents.has(d))) {
+				dependents.add(n.id);
+				changed = true;
+			}
+		}
+	}
+	return dependents;
 }
 
 export const createOrchestratorRouter = () =>
@@ -296,8 +331,29 @@ export const createOrchestratorRouter = () =>
 			.mutation(({ input }) => {
 				const run = readManifest(vaultRoot(), input.runId);
 				if (!run) throw new Error(`unknown run ${input.runId}`);
+				const target = run.nodes.find((n) => n.id === input.nodeId);
+				if (!target)
+					throw new Error(`unknown node ${input.nodeId} in run ${input.runId}`);
+
+				// The engine re-derives the same deterministic handoff_id on
+				// redispatch (`${run_id}-${node.id}`), so a stale note left behind
+				// by the failed attempt would otherwise dedup-block the fresh
+				// dispatch (writeDispatchNote no-ops if a note with that id already
+				// exists). Clear it -- and the notes of any dependents this failure
+				// previously skipped -- before resetting them to "pending".
+				const dependents = transitiveDependents(run.nodes, input.nodeId);
+				const resetIds = new Set<string>([input.nodeId]);
+				for (const n of run.nodes) {
+					if (dependents.has(n.id) && n.status === "skipped") resetIds.add(n.id);
+				}
+				for (const n of run.nodes) {
+					if (resetIds.has(n.id) && n.handoff_id) {
+						clearDispatchNote(vaultRoot(), n.agent, n.handoff_id);
+					}
+				}
+
 				const nodes = run.nodes.map((n) =>
-					n.id === input.nodeId
+					resetIds.has(n.id)
 						? {
 								...n,
 								status: "pending" as const,
