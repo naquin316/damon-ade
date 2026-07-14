@@ -2,7 +2,12 @@ import { readySet, applyFailureSkips } from "./dag";
 import type { RunManifest, RunNode } from "shared/orchestrator/types";
 
 export type EngineDeps = {
-	dispatch: (node: RunNode) => { ok: boolean; error?: string };
+	/** Dispatch a ready node. `upstream` carries that node's already-"done"
+	 *  dependencies (resolved from its `needs` edges), so the caller can hand
+	 *  their `result`s to the agent as context. Ordering alone isn't enough —
+	 *  a node that needs an upstream's output has to RECEIVE it rather than
+	 *  re-derive it from live sources. Empty for root nodes. */
+	dispatch: (node: RunNode, upstream: RunNode[]) => { ok: boolean; error?: string };
 	pollStatus: (node: RunNode) => { status: string; result: string | null } | null;
 	now: () => number;
 	onUpdate: (run: RunManifest) => void;
@@ -67,7 +72,13 @@ export function stepRun(
 		const handoffId = n.handoff_id ?? `${run.run_id}-${n.id}`;
 		const target = nodes.find((x) => x.id === n.id)!;
 		target.handoff_id = handoffId;
-		const r = deps.dispatch({ ...target });
+		// `readySet` only yields nodes whose `needs` are all "done", so these
+		// lookups resolve to finished producers; the filter is belt-and-braces
+		// against a malformed manifest whose `needs` names an unknown node id.
+		const upstream = target.needs
+			.map((id) => nodes.find((x) => x.id === id))
+			.filter((x): x is RunNode => !!x && x.status === "done");
+		const r = deps.dispatch({ ...target }, upstream);
 		if (r.ok) {
 			target.status = "running";
 			dispatchedAt.set(n.id, deps.now());

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { stepRun, isTerminal, finalize, type EngineDeps } from "./engine";
-import type { RunManifest } from "shared/orchestrator/types";
+import type { RunManifest, RunNode } from "shared/orchestrator/types";
 
 const base: RunManifest = {
 	run_id: "r1", goal: "g", status: "running", created: "2026-07-13", summary: null,
@@ -151,6 +151,42 @@ test("stepRun caps concurrent dispatch at maxConcurrent, running in waves", () =
 	expect(second.nodes.find((n) => n.id === "a")!.status).toBe("done");
 	expect(second.nodes.find((n) => n.id === "b")!.status).toBe("running");
 	expect(second.nodes.find((n) => n.id === "c")!.status).toBe("pending");
+});
+
+test("stepRun hands a dispatching node its upstream done-nodes (result-passing)", () => {
+	// n1 is finished and carries a result; n2 is ready and needs n1. Wiring the
+	// `needs` edge only buys ordering -- this asserts the OUTPUT actually
+	// reaches the dispatcher, which is what feeds the downstream agent's
+	// "## Facts" block instead of leaving it to re-derive the work.
+	const ready: RunManifest = {
+		...base,
+		nodes: [
+			{ id: "n1", agent: "strategist", task: "t1", needs: [], status: "done", handoff_id: "h1", result: "PLAN: 3 posts" },
+			{ id: "n2", agent: "repurposer", task: "t2", needs: ["n1"], status: "pending", handoff_id: null, result: null },
+		],
+	};
+	const received = new Map<string, RunNode[]>();
+	const deps: EngineDeps = {
+		dispatch: (n, upstream) => { received.set(n.id, upstream); return { ok: true }; },
+		pollStatus: () => null,
+		now: () => 0,
+		onUpdate: () => {},
+	};
+	stepRun(ready, deps, 60_000, new Map());
+	expect(received.get("n2")!.map((u) => u.id)).toEqual(["n1"]);
+	expect(received.get("n2")![0]!.result).toBe("PLAN: 3 posts");
+});
+
+test("stepRun passes an empty upstream list for a root node", () => {
+	const received = new Map<string, RunNode[]>();
+	const deps: EngineDeps = {
+		dispatch: (n, upstream) => { received.set(n.id, upstream); return { ok: true }; },
+		pollStatus: () => null,
+		now: () => 0,
+		onUpdate: () => {},
+	};
+	stepRun(base, deps, 60_000, new Map());
+	expect(received.get("n1")).toEqual([]);
 });
 
 test("finalize marks partial when any node failed, done otherwise", () => {

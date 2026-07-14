@@ -11,6 +11,7 @@ import {
 	session,
 } from "electron";
 import { makeAppSetup } from "lib/electron-app/factories/app/setup";
+import { recoverInFlightRuns } from "lib/trpc/routers/orchestrator";
 import {
 	DEFAULT_CONFIRM_ON_QUIT,
 	PLATFORM,
@@ -314,6 +315,16 @@ if (!gotTheLock) {
 			}
 		} catch (error) {
 			console.error("[main] Cockpit seed failed:", error);
+		}
+
+		// Resume any orchestrator run left "running" when we last went down (the
+		// manifest on disk is the source of truth). Must come AFTER the cockpit
+		// seed: dispatch resolves seed-brain slugs against the workspaces table.
+		// Idempotent — dispatch notes dedup, so nothing is re-spawned.
+		try {
+			recoverInFlightRuns();
+		} catch (error) {
+			console.error("[main] Orchestrator run recovery failed:", error);
 		}
 
 		console.log("[main] boot: makeAppSetup (create window)…");

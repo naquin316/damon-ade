@@ -222,6 +222,23 @@ async function awaitPlanInBackground(
 	}
 }
 
+/**
+ * Render a ready node's already-"done" dependencies into the `## Facts` block of
+ * its dispatch note. This is the result-passing pipe: wiring `needs` edges only
+ * buys ORDERING — without this, a downstream agent never sees what upstream
+ * produced and silently re-derives it from live sources (or invents it).
+ * Returns undefined for a root node so `writeDispatchNote` omits the section.
+ */
+function upstreamFacts(upstream: RunNode[]): string | undefined {
+	if (upstream.length === 0) return undefined;
+	return upstream
+		.map(
+			(u) =>
+				`### From ${u.agent} (${u.id})\n${u.result ?? "(completed, but recorded no result)"}`,
+		)
+		.join("\n\n");
+}
+
 /** Drive `run` to completion via the runner loop, persisting + broadcasting
  *  every update. Fire-and-forget from the caller's perspective (mutations
  *  return immediately; progress streams over `watchRun`). */
@@ -236,7 +253,7 @@ function startRunLoop(run: RunManifest): void {
 	activeRuns.add(runId);
 	cancelledRuns.delete(runId);
 	void runToCompletion(run, {
-		dispatch: (n) => {
+		dispatch: (n, upstream) => {
 			// stepRun (engine.ts) always sets handoff_id on the node it hands to
 			// `dispatch`, using this same fallback formula; re-derive it rather
 			// than asserting non-null so this closure stays safe if ever called
@@ -247,12 +264,18 @@ function startRunLoop(run: RunManifest): void {
 				handoffId,
 				runId,
 				task: n.task,
+				facts: upstreamFacts(upstream),
 				created: new Date().toISOString().slice(0, 10),
 			});
 			// Be EXPLICIT: agents otherwise read their OWN domain inbox
 			// (agent_messages table, customer channels, Run Log…) and never touch
 			// the orchestrator handoff note, so it stays `pending` → times out →
 			// the node fails. Name the exact file and forbid the normal routine.
+			//
+			// The instruction is deliberately TASK-NEUTRAL: how much action a node
+			// may take belongs in its `## Task` text (a smoke-test plan says
+			// "read-only check"; a real plan says "draft the posts"), never
+			// hardcoded here — that would cap every run at read-only forever.
 			const notePath = join(
 				handoffInbox(vaultRoot(), n.agent),
 				`${handoffId}.md`,
@@ -262,8 +285,9 @@ function startRunLoop(run: RunManifest): void {
 				n.agent,
 				[
 					`You have ONE orchestrator dispatch note at this exact path: ${notePath}`,
-					`Read that file. Do EXACTLY the task in its "## Task" section and nothing else — it is a read-only check, so take no real action.`,
-					`Then edit that SAME file's YAML frontmatter: add a one-line \`result:\` value summarizing what you found, and change \`status: pending\` to \`status: done\`.`,
+					`Read that file. Do EXACTLY the task in its "## Task" section and nothing else — no more, no less. Honour any limits the task states (e.g. if it says read-only, take no real action).`,
+					`If the note has a "## Facts" section, that is the OUTPUT of the agents upstream of you in this run. Treat it as your input and build on it — do not re-derive or re-invent it from live sources.`,
+					`Then edit that SAME file's YAML frontmatter: add a one-line \`result:\` value summarizing what you produced — a vault path, URL, or one-line summary that the NEXT agent can act on (never a secret; name the env var / 1Password location instead) — and change \`status: pending\` to \`status: done\`.`,
 					`Do NOT check any other inbox, queue, message table, or channel. Do NOT run your normal routine. You are finished the moment that note reads \`status: done\` with a \`result\`.`,
 				].join("\n"),
 			);
@@ -308,6 +332,46 @@ function startRunLoop(run: RunManifest): void {
 		.finally(() => {
 			activeRuns.delete(runId);
 		});
+}
+
+/**
+ * Re-enter the run loop for every manifest still marked "running" by a previous
+ * process (crash, force-quit, reload). The manifest is ALREADY the durable
+ * source of truth — node statuses, handoff_ids and results all survive on disk —
+ * so recovery needs no new state, only a trigger. Safe by construction:
+ *  - `startRunLoop` refuses a second loop for a run already in `activeRuns`;
+ *  - `writeDispatchNote` dedups, so an already-dispatched node is never
+ *    re-spawned;
+ *  - `pollStatus` reads the EXISTING note, so a node that finished while we were
+ *    down is collected as "done" on the very first tick;
+ *  - agents are spawned detached + unref'd, so they outlive an app crash and go
+ *    on writing their notes; anything genuinely orphaned simply restarts its
+ *    pickup-timeout clock (`dispatchedAt` starts empty) and can be retried.
+ * Best-effort: one unreadable manifest must never block recovering the rest.
+ */
+export function recoverInFlightRuns(): void {
+	const dir = runsDir(vaultRoot());
+	if (!existsSync(dir)) return;
+	let recovered = 0;
+	for (const file of readdirSync(dir)) {
+		if (!file.endsWith(".md")) continue;
+		try {
+			const run = readManifest(vaultRoot(), file.slice(0, -".md".length));
+			if (!run || run.status !== "running" || activeRuns.has(run.run_id)) {
+				continue;
+			}
+			startRunLoop(run);
+			recovered++;
+		} catch (error) {
+			console.error(
+				`[orchestrator] failed to recover run from ${file}:`,
+				error,
+			);
+		}
+	}
+	if (recovered > 0) {
+		console.log(`[orchestrator] recovered ${recovered} in-flight run(s)`);
+	}
 }
 
 /** Node ids transitively depending on `rootId` via `needs` edges (mirrors the
