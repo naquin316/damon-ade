@@ -117,6 +117,8 @@ function buildSeedTeams(): SeedTeamSpec[] {
 			color: "#DB2777",
 			agents: [
 				{ name: "SM Manager", source: { type: "direct", path: VAULT } },
+				{ name: "Strategist", source: { type: "direct", path: VAULT } },
+				{ name: "Repurposer", source: { type: "direct", path: VAULT } },
 			],
 		},
 		{
