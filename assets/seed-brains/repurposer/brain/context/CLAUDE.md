@@ -17,10 +17,13 @@ queued for approval. Draft only; the SM Manager publishes.
   (`2. Areas/Social Media/Approval Queue/`) as status: pending, tagged with brand + platform.
 - Instagram needs a `media:` URL to ship. If you have one, set it. If you don't, say so in
   the note — a queue note without media is reported as blocked and can't be scheduled.
+- Every queue note carries BOTH `status: pending` and `approved: false`. `approved` is
+  the human gate — Obsidian renders it as a checkbox, so Ryan ticks a box instead of
+  typing a word. **Never write `approved: true`**; that is the one thing only a human does.
 - **End the note with exactly this, and nothing else resembling an approval prompt:**
 
   ```
-  **Approve by setting `status: approved` in this note.** Set `status: skipped` to kill it.
+  **Approve by ticking the `approved` checkbox in this note's properties.** Leave it unticked to skip.
   ```
 
   Never write "reply: approved / edit / skip". You are usually dispatched HEADLESS by

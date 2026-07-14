@@ -19,11 +19,24 @@ on-demand door to it. One code path, no drift.
 
 ## The one rule
 
-**This never approves anything.** It ships only what is *already* marked `approved`.
-If you are tempted to set `status: approved` on Ryan's behalf: don't. That is the
-human gate, and it is the only thing between a drafting agent and a live brand
-account. Ryan approves by editing the note — including from Obsidian on his phone,
-since the vault is in iCloud.
+**This never approves anything.** It ships only what a human has *already* approved.
+If you are tempted to tick `approved` or write `status: approved` on Ryan's behalf:
+don't. That is the human gate, and it is the only thing between a drafting agent and
+a live brand account.
+
+## How Ryan approves
+
+By ticking the **`approved` checkbox** in the note's Obsidian properties — from his
+phone if he likes; the vault is in iCloud. A checkbox, not a typed word, because
+Obsidian 1.8.10 has no enum/select property type and `status: aproved` silently
+shipped nothing at all. `approved` is registered as `checkbox` in the vault's
+`.obsidian/types.json`.
+
+`status: approved` still works (agent-written notes and older ones use it), but an
+unrecognised status is now reported as `blocked: unknown-status` rather than silently
+ignored.
+
+**Leaving the box unticked IS skipping.** There's nothing else to do.
 
 ## Usage
 
@@ -76,11 +89,20 @@ Approval Queue drain — 2026-07-14T20:32:12Z  [DRY RUN]
 | `in flight` | claimed by a run still going | wait |
 | `untouched` | not approved | nothing — the normal resting state |
 
-**Blocked reasons:** `no-connected-account` (e.g. Ryan has **no X and no LinkedIn**
-account in Blotato — 8 of the pending notes target them), `no-media` (Instagram needs
-a media URL), `no-page-id` (Facebook needs one), `no-platform`, `no-copy` (no
-`## Final copy (verbatim)` section). All are *reports*: the note stays `approved` and
-untouched.
+**Blocked reasons** — all are *reports*; the note is left untouched so fixing the gap
+and re-running needs no re-approval:
+
+| Reason | Meaning |
+|---|---|
+| `no-connected-account` | Ryan has **no X and no LinkedIn** in Blotato (8 pending notes target them). 2 Reel notes say `platform: short-form-video`, which isn't a Blotato platform at all — should be `tiktok` or `instagram`. |
+| `no-media` | Instagram requires a media URL |
+| `no-page-id` | Facebook requires a pageId |
+| `no-platform` | no `platform:` field |
+| `no-copy` | no `## Final copy (verbatim)` section |
+| `unknown-status` | a typo like `aproved` — flagged loudly instead of silently doing nothing |
+
+Connected accounts (measured 2026-07-14): **facebook, instagram, pinterest, threads,
+tiktok**.
 
 ## needs-review means a human decides
 

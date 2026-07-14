@@ -24,14 +24,25 @@ There is no autonomous-publish path. Every post goes through this gate first:
      `/Users/ryannaquin/Library/Mobile Documents/iCloud~md~obsidian/Documents/RLOS_2026`.
      Create the folder if it doesn't exist.
    - File: `<YYYY-MM-DD>-<short-slug>.md`. Include: brand, target platform(s), the
-     final copy verbatim, the grade + rubric notes, intended schedule time, and a
-     `status: pending` line.
+     final copy verbatim, the grade + rubric notes, intended schedule time, and
+     BOTH of these frontmatter lines:
+
+     ```yaml
+     status: pending
+     approved: false
+     ```
+
+     `approved` is the human gate and MUST be present and `false`. Obsidian renders
+     it as a **checkbox** (registered in the vault's `.obsidian/types.json`), so Ryan
+     approves by ticking a box rather than typing a word — a typo like `aproved`
+     used to silently ship nothing at all. Never write `approved: true` yourself;
+     that is the one thing in this system only a human may do.
    - **Footer — write this and nothing else as the note's approval line:**
 
      ```
-     **Approve by setting `status: approved` in this note.** Ryan can do that in
-     Obsidian, including on his phone. `drain-queue` picks it up within 15 minutes
-     and schedules it. Set `status: skipped` to kill it.
+     **Approve by ticking the `approved` checkbox in this note's properties.** Ryan
+     can do that in Obsidian, including on his phone. `drain-queue` picks it up
+     within 15 minutes and schedules it. Leave it unticked to skip.
      ```
 
      Do NOT write "reply: approved / edit / skip" into the note. **The note carries

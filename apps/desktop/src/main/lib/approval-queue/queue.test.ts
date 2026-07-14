@@ -162,6 +162,102 @@ describe("classify — the never-approve invariant", () => {
 	});
 });
 
+describe("classify — the approved CHECKBOX gate", () => {
+	// Obsidian has no enum/select property type (1.8.10: text|multitext|number|
+	// checkbox|date|datetime). A checkbox is native and cannot be typo'd, which is
+	// the whole point: `status: aproved` silently ships nothing.
+	test("approved: true ships even while status is still pending", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "pending", approved: "true", platform: "threads" }),
+		);
+		expect(n.approved).toBe(true);
+		expect(classify(n, NOW, CONNECTED).kind).toBe("shippable");
+	});
+
+	test("approved: false never ships", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "pending", approved: "false", platform: "threads" }),
+		);
+		expect(n.approved).toBe(false);
+		expect(classify(n, NOW, CONNECTED).kind).toBe("untouched");
+	});
+
+	test("an absent checkbox is null, not false, and never ships", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "pending", platform: "threads" }),
+		);
+		expect(n.approved).toBeNull();
+		expect(classify(n, NOW, CONNECTED).kind).toBe("untouched");
+	});
+
+	// The gate must not be liberal. A string is not a ticked box.
+	test('approved: "yes" / "TRUE" (strings) do NOT count as approval', () => {
+		for (const v of ['"yes"', '"TRUE"', '"approved"', "1"]) {
+			const n = readNote(
+				"a.md",
+				note({ status: "pending", approved: v, platform: "threads" }),
+			);
+			expect(classify(n, NOW, CONNECTED).kind).not.toBe("shippable");
+		}
+	});
+
+	// A ticked box must never resurrect a note the machine already finished.
+	test("approved: true does NOT re-send an already-scheduled note", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "scheduled", approved: "true", platform: "threads" }),
+		);
+		expect(classify(n, NOW, CONNECTED).kind).toBe("untouched");
+	});
+
+	test("skipped beats a ticked checkbox", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "skipped", approved: "true", platform: "threads" }),
+		);
+		expect(classify(n, NOW, CONNECTED).kind).toBe("untouched");
+	});
+
+	test("needs-review beats a ticked checkbox — a human must look first", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "needs-review", approved: "true", platform: "threads" }),
+		);
+		expect(classify(n, NOW, CONNECTED).kind).toBe("untouched");
+	});
+});
+
+describe("classify — a typo is LOUD, not silent", () => {
+	// The worst failure mode: Ryan types `aproved`, believes he shipped a post, and
+	// nothing ever happens with no signal anywhere.
+	for (const typo of ["aproved", "approve", "Approved!", "aproved "]) {
+		test(`"${typo}" is reported as unknown-status, not silently ignored`, () => {
+			const n = readNote("a.md", note({ status: typo, platform: "threads" }));
+			const c = classify(n, NOW, CONNECTED);
+			expect(c.kind).toBe("blocked");
+			if (c.kind === "blocked") expect(c.reason).toBe("unknown-status");
+		});
+	}
+
+	test("but a typo still never ships", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "aproved", platform: "threads" }),
+		);
+		expect(classify(n, NOW, CONNECTED).kind).not.toBe("shippable");
+	});
+
+	test("every known status stays quiet", () => {
+		for (const s of ["pending", "skipped", "scheduled", "needs-review"]) {
+			const n = readNote("a.md", note({ status: s, platform: "threads" }));
+			expect(classify(n, NOW, CONNECTED).kind).toBe("untouched");
+		}
+	});
+});
+
 describe("classify — account resolution", () => {
 	// Measured: Ryan has no x/linkedin account. 8 pending notes target them.
 	test("a platform with no connected account is blocked, not sent", () => {

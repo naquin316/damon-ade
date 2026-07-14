@@ -24,6 +24,9 @@ export interface QueueNote {
 	file: string;
 	/** Lower-cased and trimmed. `pending` when absent — never `approved`. */
 	status: string;
+	/** The `approved` CHECKBOX — the human gate. `true` only for a literal YAML
+	 *  boolean true, never for a string. Null when the property is absent. */
+	approved: boolean | null;
 	platforms: string[];
 	media: string | null;
 	accountId: string | null;
@@ -33,6 +36,22 @@ export interface QueueNote {
 	/** The verbatim copy to publish, lifted from `## Final copy (verbatim)`. */
 	copy: string | null;
 }
+
+/** Statuses this system understands. Anything else in the field is a typo, and a
+ *  typo must be LOUD: silently treating `aproved` as "not approved" means Ryan
+ *  thinks he shipped a post and nothing ever happens. */
+const KNOWN_STATUSES = new Set([
+	"pending",
+	"approved",
+	"scheduling",
+	"scheduled",
+	"needs-review",
+	"skipped",
+]);
+
+/** Statuses owned by the machine — the note is past the human gate, so the
+ *  `approved` checkbox is irrelevant and must not re-trigger a send. */
+const MACHINE_STATUSES = new Set(["scheduled", "needs-review", "skipped"]);
 
 /** One concrete post to send. A note targeting `instagram + facebook` yields two. */
 export interface PlannedPost {
@@ -48,7 +67,8 @@ export type BlockedReason =
 	| "no-platform"
 	| "no-copy"
 	| "no-connected-account"
-	| "no-page-id";
+	| "no-page-id"
+	| "unknown-status";
 
 export type Classification =
 	| { kind: "shippable"; posts: PlannedPost[] }
@@ -134,11 +154,26 @@ export function readNote(file: string, raw: string): QueueNote {
 		return fm ? scanField(fm, key) : undefined;
 	};
 
+	// The `approved` checkbox. STRICT on purpose: only a real YAML boolean `true`
+	// counts. A string "true" is what a confused agent writes, not what Obsidian's
+	// checkbox produces, and this is the gate in front of a live brand account —
+	// it does not get to be liberal.
+	const approvedRaw = d.approved;
+	const approved =
+		typeof approvedRaw === "boolean"
+			? approvedRaw
+			: fm && /^approved:[ \t]*true[ \t]*$/m.test(fm)
+				? true
+				: fm && /^approved:[ \t]*false[ \t]*$/m.test(fm)
+					? false
+					: null;
+
 	return {
 		file,
 		// Absent status means "not approved". Defaulting the other way would let a
 		// malformed note publish itself.
 		status: (pick("status") ?? "pending").toLowerCase(),
+		approved,
 		platforms: parsePlatforms(pick("platform")),
 		media: pick("media") ?? null,
 		accountId: pick("accountId") ?? null,
@@ -193,8 +228,32 @@ export function classify(
 		};
 	}
 
-	if (note.status !== "approved")
+	// Past the human gate already — the machine owns this note now. Checked BEFORE
+	// the gate below so a lingering `approved: true` can never re-send a post that
+	// already went out, and so `skipped` always beats a stray ticked checkbox.
+	if (MACHINE_STATUSES.has(note.status))
 		return { kind: "untouched", status: note.status };
+
+	// THE GATE. Two equivalent ways a human says yes:
+	//   - the `approved` CHECKBOX (preferred — impossible to typo)
+	//   - `status: approved` (the original contract; agent-written notes use it)
+	const isApproved = note.approved === true || note.status === "approved";
+
+	if (!isApproved) {
+		// An unrecognised status is almost certainly a typo of "approved"
+		// ("aproved", "approve", "Approved!"). Reading it as "not approved" is SAFE
+		// but dishonest: Ryan thinks he shipped a post and nothing happens, with no
+		// signal anywhere. Silent no-ops are the worst failure mode this queue has,
+		// because the whole point is that a human's one-word edit means something.
+		if (!KNOWN_STATUSES.has(note.status)) {
+			return {
+				kind: "blocked",
+				reason: "unknown-status",
+				detail: `"${note.status}" is not a known status — did you mean "approved"? (or tick the approved checkbox)`,
+			};
+		}
+		return { kind: "untouched", status: note.status };
+	}
 
 	if (note.platforms.length === 0)
 		return { kind: "blocked", reason: "no-platform" };
