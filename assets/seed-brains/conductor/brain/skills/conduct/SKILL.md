@@ -101,6 +101,30 @@ shopify-store-cockpit needs) and `n3.needs` picks up `["n2"]` (shopify-store-coc
 emits `collection`/`product-facts`/`angle`, which sm-manager needs) — an acyclic chain,
 no manual edge-writing required.
 
+## Smoke-test mode — exercise every agent
+
+If the goal text begins with `SMOKE TEST` (case-insensitive), do NOT decompose by
+capability. Instead produce a fleet connectivity check: **one node per agent in the
+injected roster EXCEPT `conductor` itself** (the Conductor plans, it is never dispatched
+to). List them in dependency-friendly order (producers before consumers — e.g.
+`strategist`, then `foreman-listings`, then `shopify-store-cockpit`, then `sm-manager`
+and `repurposer`; the standalone agents can go in any order after), leave every `needs`
+empty as always, and give each node the SAME read-only task:
+
+> `Orchestrator connectivity smoke test. Do NOT publish, apply, place any order, send any
+> message, or take any real action — this is a read-only check. Confirm you received this
+> dispatch, write a one-line result summarizing your current status from a read-only
+> glance at your normal surface, then flip your handoff note to done.`
+
+The engine's `wireDependencies()` will still auto-wire the HLD content chain
+(`strategist`/`foreman-listings` → `shopify-store-cockpit` → `sm-manager`/`repurposer`)
+from the vocab, so a smoke test exercises BOTH a real dependency sub-graph AND wide
+parallel fan-out across the standalone agents (`codehq-portfolio`, `daily-planner`,
+`kalshi-tessa`, `rubypulse-laser`, `storefront-support`, `clip-scout`, `script-writer`)
+in one run. Every agent's own gate still applies, but a read-only status glance should
+never reach a publish/apply/send gate. This is the canonical "run through all the agents"
+scenario — see `docs/orchestrator-test-scenarios.md`.
+
 ## Pitfalls
 
 - Don't write node `needs` yourself — that's the engine's job via the vocab; hand-writing
