@@ -1,7 +1,7 @@
 import { spawn as spawnProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, openSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { workspaces } from "@superset/local-db";
 import { observable } from "@trpc/server/observable";
@@ -48,6 +48,16 @@ const NODE_TIMEOUT_MS = 15 * 60 * 1000;
 // wave launches at once (most then hang 20+ min and time out); dispatching a
 // bounded number at a time keeps them responsive.
 const ORCH_MAX_CONCURRENT = 3;
+/**
+ * A "running" manifest older than this is treated as ABANDONED, not resumable.
+ * The run loop rewrites the manifest on every tick (TICK_INTERVAL_MS), so its
+ * mtime is an exact liveness signal: a gap larger than a full node timeout
+ * means nothing has driven this run for longer than any node is allowed to
+ * live, i.e. the app wasn't briefly restarted — the run was walked away from.
+ * Resuming those re-dispatches agents for work the user abandoned hours ago;
+ * they stay put for an explicit retry/cancel from the Run Board instead.
+ */
+const RECOVERY_STALE_AFTER_MS = NODE_TIMEOUT_MS;
 
 const bus = new EventEmitter();
 const emit = (e: OrchestratorEvent) => bus.emit("event", e);
@@ -353,11 +363,20 @@ export function recoverInFlightRuns(): void {
 	const dir = runsDir(vaultRoot());
 	if (!existsSync(dir)) return;
 	let recovered = 0;
+	let abandoned = 0;
 	for (const file of readdirSync(dir)) {
 		if (!file.endsWith(".md")) continue;
 		try {
-			const run = readManifest(vaultRoot(), file.slice(0, -".md".length));
+			const runId = file.slice(0, -".md".length);
+			const run = readManifest(vaultRoot(), runId);
 			if (!run || run.status !== "running" || activeRuns.has(run.run_id)) {
+				continue;
+			}
+			// Liveness gate: see RECOVERY_STALE_AFTER_MS. Only a run the loop was
+			// actively ticking when we went down is resumable.
+			const age = Date.now() - statSync(runPath(vaultRoot(), runId)).mtimeMs;
+			if (age > RECOVERY_STALE_AFTER_MS) {
+				abandoned++;
 				continue;
 			}
 			startRunLoop(run);
@@ -371,6 +390,11 @@ export function recoverInFlightRuns(): void {
 	}
 	if (recovered > 0) {
 		console.log(`[orchestrator] recovered ${recovered} in-flight run(s)`);
+	}
+	if (abandoned > 0) {
+		console.log(
+			`[orchestrator] left ${abandoned} stale "running" run(s) alone (older than ${RECOVERY_STALE_AFTER_MS / 60_000}min — retry/cancel them from the Run Board)`,
+		);
 	}
 }
 
