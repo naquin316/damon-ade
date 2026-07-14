@@ -59,6 +59,32 @@ export function clearDispatchNote(vault: string, slug: string, handoffId: string
 	}
 }
 
+/**
+ * Last-resort line scan for the two contract fields when the YAML parse fails.
+ *
+ * The run manifest is machine-written (`joinFrontmatter` -> yaml.stringify), so
+ * it is always valid YAML. A handoff note is the opposite: the AGENT hand-edits
+ * this frontmatter, and an unquoted `result:` holding a colon-space ("Note: the
+ * shared dir…"), a `#`, or a stray quote is invalid YAML. `splitFrontmatter`
+ * swallows that error and returns `{}`, which used to read back as
+ * `status: "pending"` — indistinguishable from "never picked up". The node then
+ * sat until the 15-minute timeout and FAILED, silently discarding work the
+ * agent had already completed successfully. Observed live: a repurposer node
+ * wrote a perfect result containing "Note: " and was thrown away for it.
+ *
+ * Being strict here buys nothing (there is no second reader of these notes) and
+ * costs real work, so accept a quoting slip: `status:` is always its own line,
+ * and `result:` runs to the end of the frontmatter block.
+ */
+function scanContractFields(fm: string): { status: string; result: string | null } {
+	const status = fm.match(/^status:[ \t]*["']?(\w+)["']?[ \t]*$/m)?.[1];
+	const idx = fm.search(/^result:/m);
+	const result = idx === -1
+		? null
+		: fm.slice(idx).replace(/^result:[ \t]*/, "").trim().replace(/\s*\n\s*/g, " ") || null;
+	return { status: status ?? "pending", result };
+}
+
 export function readHandoffStatus(
 	vault: string, slug: string, handoffId: string,
 ): { status: string; result: string | null } | null {
@@ -66,7 +92,20 @@ export function readHandoffStatus(
 	const filename = `${handoffId}.md`;
 	const candidate = [join(inbox, filename), join(inbox, "done", filename)].find(existsSync);
 	if (!candidate) return null;
-	const { data } = splitFrontmatter(readFileSync(candidate, "utf8"));
+	const raw = readFileSync(candidate, "utf8");
+	const { data } = splitFrontmatter(raw);
 	const d = (data ?? {}) as { status?: string; result?: string };
-	return { status: d.status ?? "pending", result: d.result ?? null };
+	if (d.status) return { status: d.status, result: d.result ?? null };
+	// No status off the parsed YAML: either the frontmatter didn't parse, or the
+	// agent hasn't written a status yet. Fall back to the line scan (see above)
+	// before reporting the "pending" that would strand a finished node.
+	const fm = raw.match(/^---\n([\s\S]*?)\n---\n/)?.[1];
+	if (!fm) return { status: "pending", result: null };
+	const scanned = scanContractFields(fm);
+	if (scanned.status !== "pending") {
+		console.warn(
+			`[orchestrator] handoff ${handoffId} (${slug}): frontmatter did not parse as YAML; recovered status "${scanned.status}" by line scan. The agent likely wrote an unquoted result: containing ':' or '#'.`,
+		);
+	}
+	return scanned;
 }

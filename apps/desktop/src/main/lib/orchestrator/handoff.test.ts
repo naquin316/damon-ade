@@ -47,6 +47,47 @@ test("readHandoffStatus reads result from a done note and is back-compat", () =>
 	expect(readHandoffStatus(vault, "foreman", "h3")).toEqual({ status: "drafted", result: null });
 });
 
+test("readHandoffStatus recovers a done note whose unquoted result: breaks the YAML parse", () => {
+	// Regression: observed LIVE. A repurposer node finished, wrote a correct
+	// result containing "Note: the shared dir…" -- an unquoted YAML scalar with
+	// a colon-space, which is invalid YAML. splitFrontmatter swallowed the error
+	// and returned {}, so this read back as "pending"; the node then sat until
+	// the 15-minute timeout and failed, discarding completed work.
+	const vault = mkdtempSync(join(tmpdir(), "hq-"));
+	const inbox = handoffInbox(vault, "repurposer");
+	mkdirSync(inbox, { recursive: true });
+	writeFileSync(
+		join(inbox, "h6.md"),
+		"---\nhandoff_id: h6\nfrom: conductor\nto: repurposer\nstatus: done\nrun_id: r1\nresult: Smoke test PASS (read-only) — viral-hooks reachable. Note: the shared dir the strategist cited carries viral-hooks but NOT post-grader.\n---\n## Task\nsmoke\n",
+		"utf8",
+	);
+	const s = readHandoffStatus(vault, "repurposer", "h6");
+	expect(s?.status).toBe("done");
+	expect(s?.result).toContain("Note: the shared dir");
+});
+
+test("readHandoffStatus still reports pending for a note the agent has not touched", () => {
+	// The fallback must not manufacture a status: a genuinely pending note has
+	// to keep reading as pending, or the pickup timeout stops protecting us.
+	const vault = mkdtempSync(join(tmpdir(), "hq-"));
+	writeDispatchNote(vault, { slug: "foreman", handoffId: "h7", runId: "r1", task: "t" });
+	expect(readHandoffStatus(vault, "foreman", "h7")).toEqual({ status: "pending", result: null });
+});
+
+test("readHandoffStatus recovers status from a malformed note with no result at all", () => {
+	const vault = mkdtempSync(join(tmpdir(), "hq-"));
+	const inbox = handoffInbox(vault, "foreman");
+	mkdirSync(inbox, { recursive: true });
+	// `reason:` is unquoted and colon-laden => YAML dies, but status: is intact.
+	writeFileSync(
+		join(inbox, "h8.md"),
+		"---\nhandoff_id: h8\nstatus: rejected\nreason: bad input: not usable\n---\nbody\n",
+		"utf8",
+	);
+	const s = readHandoffStatus(vault, "foreman", "h8");
+	expect(s?.status).toBe("rejected");
+});
+
 test("clearDispatchNote lets a fresh writeDispatchNote replace a stale (dedup-blocked) note", () => {
 	const vault = mkdtempSync(join(tmpdir(), "hq-"));
 	writeDispatchNote(vault, { slug: "foreman", handoffId: "h4", runId: "r1", task: "first attempt" });
