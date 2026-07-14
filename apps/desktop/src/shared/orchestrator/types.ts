@@ -4,7 +4,10 @@ export const nodeStatus = z.enum(["pending", "running", "done", "failed", "skipp
 export type NodeStatus = z.infer<typeof nodeStatus>;
 
 export const runStatus = z.enum([
-	"planning", "awaiting-approval", "running", "done", "partial", "cancelled",
+	// "failed" covers a run that never made it out of planning (Conductor
+	// timeout or a cyclic plan) — distinct from "partial", which the engine
+	// uses for a run that got dispatched but had at least one node fail.
+	"planning", "awaiting-approval", "running", "done", "partial", "cancelled", "failed",
 ]);
 export type RunStatus = z.infer<typeof runStatus>;
 

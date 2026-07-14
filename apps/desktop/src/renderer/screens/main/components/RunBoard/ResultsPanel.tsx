@@ -4,6 +4,7 @@ const TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set([
 	"done",
 	"partial",
 	"cancelled",
+	"failed",
 ]);
 
 interface ResultsPanelProps {

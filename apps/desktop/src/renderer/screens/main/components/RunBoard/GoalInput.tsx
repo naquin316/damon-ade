@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useSubmitGoal } from "renderer/react-query/orchestrator/hooks";
 
 interface GoalInputProps {
-	/** Fires once the Conductor has written a plan; caller starts watching this run. */
+	/** Fires as soon as submitGoal returns the "planning" manifest (does NOT
+	 *  wait for the Conductor's plan — that arrives later over watchRun). */
 	onSubmitted: (runId: string) => void;
 }
 
@@ -19,6 +20,9 @@ export function GoalInput({ onSubmitted }: GoalInputProps) {
 			{ goal: trimmed },
 			{
 				onSuccess: (run) => {
+					// submitGoal now resolves as soon as the "planning" manifest is
+					// written — it does not wait for the Conductor. Hand off to
+					// watchRun immediately so the UI never blocks on this mutation.
 					onSubmitted(run.run_id);
 					setGoal("");
 				},

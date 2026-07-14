@@ -1,10 +1,12 @@
+import { spawn as spawnProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { existsSync, readdirSync } from "node:fs";
 import { workspaces } from "@superset/local-db";
 import { observable } from "@trpc/server/observable";
-import { isNotNull } from "drizzle-orm";
+import { eq, isNotNull } from "drizzle-orm";
 import { buildAgentLaunchCommand } from "main/lib/agent-launch";
+import { resolveAgentWorktreePath } from "main/lib/agent-worktree";
 import { localDb } from "main/lib/local-db";
 import { loadRoster } from "main/lib/orchestrator/capabilities";
 import { detectCycle, wireDependencies } from "main/lib/orchestrator/dag";
@@ -19,11 +21,10 @@ import {
 	writeDispatchNote,
 } from "main/lib/orchestrator/handoff";
 import { readManifest, writeManifest } from "main/lib/orchestrator/manifest";
-import { runsDir } from "main/lib/orchestrator/paths";
+import { runPath, runsDir } from "main/lib/orchestrator/paths";
 import { runToCompletion } from "main/lib/orchestrator/runner";
 import { vaultRoot } from "main/lib/orchestrator/vault";
 import { slugForAgent } from "main/lib/seed-brains";
-import { getWorkspaceRuntimeRegistry } from "main/lib/workspace-runtime";
 import {
 	type OrchestratorEvent,
 	type RunManifest,
@@ -33,9 +34,10 @@ import {
 import { z } from "zod";
 import { publicProcedure, router } from "..";
 
-// Poll interval for submitGoal's bounded wait on the Conductor's plan.
+// Poll interval for submitGoal's background wait on the Conductor's plan.
 const PLAN_POLL_MS = 2000;
-const SUBMIT_GOAL_TIMEOUT_MS = 5 * 60 * 1000;
+// A headless `claude -p` plan should land well under this.
+const PLAN_TIMEOUT_MS = 3 * 60 * 1000;
 // Runner loop tick interval + per-node dispatch timeout for a live run.
 const TICK_INTERVAL_MS = 3000;
 const NODE_TIMEOUT_MS = 15 * 60 * 1000;
@@ -71,44 +73,53 @@ const resolveSlug: SlugResolver = (slug) => {
 };
 
 /**
- * Open a pane for the agent and type its launch command into it.
- *
- * SEAM (Task 11 live-verify): `createOrAttach` is designed for a UI-owned
- * pane (paneId/tabId normally come from a renderer tab). Here we synthesize
- * both since the orchestrator dispatches headlessly from the main process.
- * This is the smallest correct call against the real
- * `getWorkspaceRuntimeRegistry().getDefault().terminal` surface — confirm
- * against a live agent dispatch once the Conductor seed-brain exists
- * (Task 10) that a synthetic paneId/tabId with no owning renderer tab
- * behaves (daemon accepts it, output is inspectable/killable from the UI).
+ * Resolve the cwd an agent's headless process should run in: its real
+ * worktree (mirrors agent-memory-backfill.ts), falling back to the vault
+ * root if the workspace row or worktree can't be resolved.
  */
-const spawnInPane: Spawner = ({ agentId, command, label }) => {
-	const runtime = getWorkspaceRuntimeRegistry().getDefault();
-	const paneId = `orchestrator-${label}-${randomUUID()}`;
-	void runtime.terminal
-		.createOrAttach({
-			paneId,
-			tabId: paneId,
-			workspaceId: agentId,
-			runtime: "claude",
-		})
-		.then(() =>
-			runtime.terminal.write({
-				paneId,
-				data: command.endsWith("\n") ? command : `${command}\n`,
-			}),
-		)
-		.catch((error) => {
-			console.error(`[orchestrator] spawn failed for ${label}:`, error);
+function resolveAgentCwd(agentId: string): string {
+	const row = localDb
+		.select()
+		.from(workspaces)
+		.where(eq(workspaces.id, agentId))
+		.get();
+	const worktree = resolveAgentWorktreePath(agentId, row?.worktreeId);
+	return worktree || vaultRoot();
+}
+
+/**
+ * Spawn the agent's launch command as a headless, detached child process
+ * (non-interactive `claude -p ...`) — mirrors the detached-spawn pattern in
+ * self-update.ts. Best-effort: never throws out of the Spawner.
+ */
+const spawnHeadless: Spawner = ({ agentId, command, label }) => {
+	try {
+		const cwd = resolveAgentCwd(agentId);
+		const child = spawnProcess(command, {
+			shell: true,
+			cwd,
+			detached: true,
+			stdio: "ignore",
 		});
+		child.unref();
+	} catch (error) {
+		console.error(`[orchestrator] spawn failed for ${label}:`, error);
+	}
 };
 
 const realDispatchDeps = {
 	resolveSlug,
-	spawn: spawnInPane,
+	spawn: spawnHeadless,
+	// Append -p so dispatchAgent's appended `JSON.stringify(instruction)`
+	// becomes the print-mode prompt: `... -p "<instruction>"`.
 	buildCommand: (agentId: string) =>
-		buildAgentLaunchCommand(agentId, "claude")[0],
+		`${buildAgentLaunchCommand(agentId, "claude")[0]} -p`,
 };
+
+/** Sentinel thrown by `pollForPlan` when the run is cancelled mid-poll, so
+ *  callers can distinguish "cancelled" from "timed out" without inspecting
+ *  message strings. */
+class PollCancelledError extends Error {}
 
 async function pollForPlan(
 	runId: string,
@@ -116,6 +127,7 @@ async function pollForPlan(
 ): Promise<RunManifest> {
 	const start = Date.now();
 	while (Date.now() - start < timeoutMs) {
+		if (cancelledRuns.has(runId)) throw new PollCancelledError(runId);
 		const manifest = readManifest(vaultRoot(), runId);
 		if (manifest && manifest.status === "awaiting-approval") return manifest;
 		await sleep(PLAN_POLL_MS);
@@ -123,6 +135,56 @@ async function pollForPlan(
 	throw new Error(
 		`Timed out waiting for the Conductor to write a plan for run ${runId}`,
 	);
+}
+
+/**
+ * Background task kicked off by `submitGoal` (NOT awaited by the mutation):
+ * poll for the Conductor's plan, wire dependencies + check for cycles, then
+ * persist + broadcast the result. Bails early (no manifest write — `cancelRun`
+ * already wrote "cancelled") if the run is cancelled mid-poll.
+ */
+async function awaitPlanInBackground(
+	runId: string,
+	roster: ReturnType<typeof loadRoster>,
+): Promise<void> {
+	try {
+		const plan = await pollForPlan(runId, PLAN_TIMEOUT_MS);
+		if (cancelledRuns.has(runId)) return;
+		const wired: RunManifest = {
+			...plan,
+			nodes: wireDependencies(plan.nodes, roster),
+		};
+		const cycle = detectCycle(wired.nodes);
+		if (cycle) {
+			const failed: RunManifest = {
+				...wired,
+				status: "failed",
+			};
+			writeManifest(vaultRoot(), failed);
+			emit({ type: "run-updated", run: failed });
+			emit({
+				type: "run-error",
+				runId,
+				message: `Conductor produced a cyclic plan: ${cycle.join(" -> ")}`,
+			});
+			return;
+		}
+		writeManifest(vaultRoot(), wired);
+		emit({ type: "run-updated", run: wired });
+	} catch (error) {
+		if (error instanceof PollCancelledError) return;
+		const message = error instanceof Error ? error.message : String(error);
+		const current = readManifest(vaultRoot(), runId);
+		if (current) {
+			const failed: RunManifest = {
+				...current,
+				status: "failed",
+			};
+			writeManifest(vaultRoot(), failed);
+			emit({ type: "run-updated", run: failed });
+		}
+		emit({ type: "run-error", runId, message });
+	}
 }
 
 /** Drive `run` to completion via the runner loop, persisting + broadcasting
@@ -225,20 +287,37 @@ export const createOrchestratorRouter = () =>
 		/**
 		 * Spawn the Conductor (headless) with the goal + roster, told to WRITE
 		 * the plan manifest with status: awaiting-approval. The engine never
-		 * asks an LLM to run the loop — this is plan authoring only. The
-		 * Conductor seed-brain doesn't exist until Task 10, so this cannot be
-		 * live-exercised yet; structure + typecheck only (see task-8-report.md).
+		 * asks an LLM to run the loop — this is plan authoring only.
+		 *
+		 * Non-blocking: this mutation returns the "planning" manifest as soon as
+		 * it's written and the Conductor is dispatched. The actual wait for the
+		 * plan happens in `awaitPlanInBackground`, which is NOT awaited here —
+		 * progress streams to the client over `watchRun` instead. This keeps the
+		 * UI responsive (no multi-minute-blocked mutation) and gives the user a
+		 * Cancel escape while planning is in flight.
 		 */
 		submitGoal: publicProcedure
 			.input(z.object({ goal: z.string() }))
 			.mutation(async ({ input }) => {
 				const runId = `run-${randomUUID()}`;
 				const roster = loadRoster();
+
+				const planning: RunManifest = {
+					run_id: runId,
+					goal: input.goal,
+					status: "planning",
+					created: new Date().toISOString().slice(0, 10),
+					nodes: [],
+					summary: null,
+				};
+				writeManifest(vaultRoot(), planning);
+				emit({ type: "run-updated", run: planning });
+
 				const instruction = [
 					`Goal: ${input.goal}`,
 					"",
-					`Write the run plan to runs/${runId}.md with run_id: "${runId}" and status: awaiting-approval.`,
-					"Plan only — do not dispatch any agent yet.",
+					`Write the plan to ${runPath(vaultRoot(), runId)} with run_id: "${runId}" and status: awaiting-approval.`,
+					"Plan only — do not dispatch.",
 					"",
 					"Roster (capabilities.yaml per agent):",
 					JSON.stringify(roster, null, 2),
@@ -251,20 +330,11 @@ export const createOrchestratorRouter = () =>
 				);
 				if (!dispatched.ok) throw new Error(dispatched.error);
 
-				const plan = await pollForPlan(runId, SUBMIT_GOAL_TIMEOUT_MS);
-				const wired: RunManifest = {
-					...plan,
-					nodes: wireDependencies(plan.nodes, roster),
-				};
-				const cycle = detectCycle(wired.nodes);
-				if (cycle)
-					throw new Error(
-						`Conductor produced a cyclic plan: ${cycle.join(" -> ")}`,
-					);
+				// Fire-and-forget: do NOT await. Errors surface via the "run-error"
+				// event over watchRun, not via this mutation.
+				void awaitPlanInBackground(runId, roster);
 
-				writeManifest(vaultRoot(), wired);
-				emit({ type: "run-updated", run: wired });
-				return wired;
+				return planning;
 			}),
 
 		approvePlan: publicProcedure
