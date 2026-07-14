@@ -119,6 +119,17 @@ function buildSeedTeams(): SeedTeamSpec[] {
 				{ name: "SM Manager", source: { type: "direct", path: VAULT } },
 			],
 		},
+		{
+			// The orchestrator's planner. `submitGoal` spawns this agent to
+			// decompose a goal into a run manifest; it plans over the vault (no
+			// repo worktree), so it seeds as a `direct` vault agent like SM
+			// Manager / Daily Planner. Its brain is assets/seed-brains/conductor.
+			name: "Orchestration",
+			color: "#0891B2",
+			agents: [
+				{ name: "Conductor", source: { type: "direct", path: VAULT } },
+			],
+		},
 	];
 }
 

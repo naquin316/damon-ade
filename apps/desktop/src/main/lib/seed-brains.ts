@@ -19,6 +19,7 @@ export const AGENT_BRAIN_SLUGS: Record<string, string> = {
 	"Daily Planner": "daily-planner",
 	"Code HQ / Portfolio": "codehq-portfolio",
 	"SM Manager": "sm-manager",
+	Conductor: "conductor",
 };
 
 export function slugForAgent(agentName: string): string | undefined {
