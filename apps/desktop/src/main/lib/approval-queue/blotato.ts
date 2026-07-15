@@ -179,6 +179,53 @@ export async function deleteSchedule(
 		throw new Error(`deleteSchedule failed: ${await readError(res)}`);
 }
 
+/**
+ * Upload a local image so it becomes a Blotato-hosted URL usable as a post's
+ * `mediaUrls`. This is the intake front-door's first step: a phone photo isn't a URL,
+ * and Blotato (like every platform API) needs one.
+ *
+ * Two hops, per the docs:
+ *   1. POST /v2/media/uploads {filename} -> { presignedUrl, publicUrl }
+ *   2. PUT the raw bytes to presignedUrl with the file's content-type
+ * Then `publicUrl` is what goes into the post.
+ */
+export async function uploadMedia(
+	deps: BlotatoDeps,
+	file: { bytes: Uint8Array; filename: string; contentType: string },
+): Promise<{ publicUrl: string }> {
+	const base = deps.baseUrl ?? BLOTATO_BASE_URL;
+	const presign = await deps.fetch(`${base}/media/uploads`, {
+		method: "POST",
+		headers: headers(deps),
+		body: JSON.stringify({ filename: file.filename }),
+	});
+	if (!presign.ok)
+		throw new Error(`uploadMedia presign failed: ${await readError(presign)}`);
+	const { presignedUrl, publicUrl } = (await presign.json()) as {
+		presignedUrl?: string;
+		publicUrl?: string;
+	};
+	if (!presignedUrl || !publicUrl) {
+		throw new Error(
+			"uploadMedia: presign response missing presignedUrl/publicUrl",
+		);
+	}
+
+	// The PUT goes to the presigned URL directly — NO blotato-api-key header (it's a
+	// signed S3-style URL; adding auth headers can break the signature).
+	const put = await deps.fetch(presignedUrl, {
+		method: "PUT",
+		headers: { "Content-Type": file.contentType },
+		// Uint8Array is a valid fetch body at runtime; TS's BodyInit union is fussy
+		// about the generic, so cast.
+		body: file.bytes as unknown as BodyInit,
+	});
+	if (!put.ok)
+		throw new Error(`uploadMedia PUT failed: ${await readError(put)}`);
+
+	return { publicUrl };
+}
+
 /** platform -> account. First account per platform wins; the queue notes carry an
  *  explicit `accountId` when it matters. */
 export function indexAccounts(

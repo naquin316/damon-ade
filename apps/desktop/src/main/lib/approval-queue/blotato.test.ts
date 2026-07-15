@@ -4,6 +4,7 @@ import {
 	createPost,
 	indexAccounts,
 	listAccounts,
+	uploadMedia,
 } from "./blotato";
 
 function fakeFetch(
@@ -182,6 +183,101 @@ describe("createPost — the response shape that bit us live", () => {
 		expect(
 			(calls[0]?.init?.headers as Record<string, string>)["blotato-api-key"],
 		).toBe(KEY);
+	});
+});
+
+describe("uploadMedia — photo -> Blotato URL (the intake first step)", () => {
+	function mediaFetch() {
+		const calls: {
+			url: string;
+			method: string;
+			headers: Record<string, string>;
+			body: unknown;
+		}[] = [];
+		const fn = (async (url: string, init?: RequestInit) => {
+			const u = String(url);
+			calls.push({
+				url: u,
+				method: init?.method ?? "GET",
+				headers: (init?.headers ?? {}) as Record<string, string>,
+				body: init?.body,
+			});
+			if (u.endsWith("/media/uploads")) {
+				return {
+					ok: true,
+					status: 200,
+					json: async () => ({
+						presignedUrl: "https://s3.example/put?sig=abc",
+						publicUrl: "https://database.blotato.com/x/photo.jpg",
+					}),
+					text: async () => "",
+				} as unknown as Response;
+			}
+			return {
+				ok: true,
+				status: 200,
+				json: async () => ({}),
+				text: async () => "",
+			} as unknown as Response;
+		}) as unknown as typeof globalThis.fetch;
+		return { fn, calls };
+	}
+
+	test("presigns, PUTs the bytes, and returns publicUrl", async () => {
+		const { fn, calls } = mediaFetch();
+		const bytes = new Uint8Array([1, 2, 3]);
+		const r = await uploadMedia(
+			{ fetch: fn, apiKey: KEY },
+			{ bytes, filename: "photo.jpg", contentType: "image/jpeg" },
+		);
+
+		expect(r.publicUrl).toBe("https://database.blotato.com/x/photo.jpg");
+		expect(calls[0]?.url).toBe("https://backend.blotato.com/v2/media/uploads");
+		expect(JSON.parse(String(calls[0]?.body))).toEqual({
+			filename: "photo.jpg",
+		});
+		expect(calls[1]?.url).toBe("https://s3.example/put?sig=abc");
+		expect(calls[1]?.method).toBe("PUT");
+	});
+
+	// The presigned PUT is a signed S3-style URL; sending the blotato-api-key header
+	// can break the signature. It must carry only Content-Type.
+	test("the PUT does NOT include the blotato-api-key header", async () => {
+		const { fn, calls } = mediaFetch();
+		await uploadMedia(
+			{ fetch: fn, apiKey: KEY },
+			{
+				bytes: new Uint8Array([1]),
+				filename: "p.png",
+				contentType: "image/png",
+			},
+		);
+		expect(
+			(calls[1]?.headers as Record<string, string>)["blotato-api-key"],
+		).toBeUndefined();
+		expect((calls[1]?.headers as Record<string, string>)["Content-Type"]).toBe(
+			"image/png",
+		);
+	});
+
+	test("a presign response missing fields throws", async () => {
+		const fn = (async () =>
+			({
+				ok: true,
+				status: 200,
+				json: async () => ({}),
+				text: async () => "",
+			}) as unknown as Response) as unknown as typeof globalThis.fetch;
+		expect(
+			uploadMedia(
+				{ fetch: fn, apiKey: KEY },
+				{
+					bytes: new Uint8Array([1]),
+					filename: "p.jpg",
+					contentType: "image/jpeg",
+				},
+			),
+		).rejects.toThrow(/missing/);
 	});
 });
 
