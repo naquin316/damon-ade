@@ -19,13 +19,16 @@
  * The key is OPTIONAL: without it, cards still render but shippability shows
  * "unknown (no Blotato)" instead of ready/blocked.
  */
+import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
 	type BlotatoAccount,
 	indexAccounts,
 	listAccounts,
+	uploadMedia,
 } from "../src/main/lib/approval-queue/blotato";
+import { createDraft } from "../src/main/lib/approval-queue/intake";
 import {
 	classify,
 	type QueueNote,
@@ -155,7 +158,9 @@ function buildCard(
 		// A note the drain scheduled records scheduled_time; a note hand-marked
 		// `scheduled` in an older session has none, and there is no real schedule
 		// behind it — say so rather than imply a time we don't have.
-		verdict = when ? `Scheduled for ${when} CT` : "Marked scheduled (no time recorded)";
+		verdict = when
+			? `Scheduled for ${when} CT`
+			: "Marked scheduled (no time recorded)";
 	} else if (note.status === "skipped") {
 		state = "skipped";
 		verdict = "Skipped";
@@ -250,6 +255,37 @@ async function loadConnected(): Promise<Map<string, BlotatoAccount> | null> {
 	}
 }
 
+/**
+ * Generate caption copy via `claude -p`, reusing Ryan's subscription (no API key).
+ * spawnSync with an ARGV ARRAY, not a shell string — so the RYA-176 injection class
+ * (backticks/$ in a prompt executed by /bin/sh) simply cannot happen. Returns the
+ * model's final text from `--output-format json`.
+ */
+function claudeGenerateCopy(system: string, prompt: string): string {
+	const r = spawnSync(
+		"claude",
+		[
+			"-p",
+			prompt,
+			"--model",
+			"claude-opus-4-8[1m]",
+			"--append-system-prompt",
+			system,
+			"--output-format",
+			"json",
+		],
+		{ encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 120_000 },
+	);
+	if (r.status !== 0 || !r.stdout) {
+		throw new Error(
+			`claude copy-gen failed (status ${r.status}): ${(r.stderr || "").slice(0, 200)}`,
+		);
+	}
+	const parsed = JSON.parse(r.stdout) as { result?: string };
+	if (!parsed.result) throw new Error("claude copy-gen: no result in output");
+	return parsed.result;
+}
+
 /** Resolve a POSTed file path back to a real queue note — defends against a client
  *  sending a path outside the queue dir. */
 function resolveQueueFile(file: string): string | null {
@@ -314,6 +350,65 @@ const server = Bun.serve({
 					: upsertFrontmatter(raw, { status: "skipped", approved: "false" });
 			writeFileSync(path, next, "utf8");
 			return Response.json({ ok: true });
+		}
+
+		// Intake front door (web): a photo (base64) + a hint -> upload -> HLD copy ->
+		// a pending draft in the queue, which then flows through the same approve path.
+		if (req.method === "POST" && url.pathname === "/api/intake") {
+			const apiKey = process.env.BLOTATO_API_KEY;
+			if (!apiKey || apiKey.startsWith("op://")) {
+				return Response.json(
+					{ ok: false, error: "no BLOTATO_API_KEY — cannot upload media" },
+					{ status: 400 },
+				);
+			}
+			const body = (await req.json().catch(() => ({}))) as {
+				hint?: string;
+				filename?: string;
+				contentType?: string;
+				base64?: string;
+			};
+			if (!body.hint?.trim())
+				return Response.json(
+					{ ok: false, error: "a hint (what the product is) is required" },
+					{ status: 400 },
+				);
+			if (!body.base64)
+				return Response.json(
+					{ ok: false, error: "a photo is required" },
+					{ status: 400 },
+				);
+
+			try {
+				const bytes = new Uint8Array(Buffer.from(body.base64, "base64"));
+				const blotato = { fetch: globalThis.fetch, apiKey };
+				const { draft } = await createDraft(
+					{
+						upload: (f) => uploadMedia(blotato, f),
+						generateCopy: (system, prompt) =>
+							Promise.resolve(claudeGenerateCopy(system, prompt)),
+						writeNote: (d) => {
+							const p = join(QUEUE_DIR, d.filename);
+							writeFileSync(p, d.content, "utf8");
+							return p;
+						},
+						today: () => new Date().toISOString().slice(0, 10),
+					},
+					{
+						bytes,
+						filename: body.filename || "intake.jpg",
+						contentType: body.contentType || "image/jpeg",
+						hint: body.hint,
+						door: "web",
+					},
+				);
+				return Response.json({ ok: true, slug: draft.slug });
+			} catch (e) {
+				return Response.json(
+					{ ok: false, error: e instanceof Error ? e.message : String(e) },
+					{ status: 500 },
+				);
+			}
 		}
 
 		return new Response("not found", { status: 404 });
@@ -394,15 +489,54 @@ const PAGE = /* html */ `<!doctype html>
   .sched a{font-size:.74rem;color:var(--muted);text-decoration:none} .sched a:hover{color:var(--ink)}
   .empty{grid-column:1/-1;text-align:center;color:var(--muted);padding:3rem}
   footer{text-align:center;color:var(--muted);font-size:.72rem;font-family:var(--mono);padding:1rem}
+  .newbtn{position:absolute;top:1.1rem;right:1.25rem;background:var(--primary);border:none;color:#fff;
+    font-family:var(--sans);font-weight:600;font-size:.82rem;padding:.45rem .85rem;border-radius:var(--r);cursor:pointer}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:20;padding:1rem}
+  .overlay.on{display:flex}
+  .modal{background:var(--card);border:1px solid var(--border);border-radius:var(--r);width:100%;max-width:440px;padding:1.25rem;display:flex;flex-direction:column;gap:.8rem}
+  .modal h2{margin:0;font-size:1rem} .modal label{font-size:.78rem;color:var(--muted);display:block;margin-bottom:.3rem}
+  .drop{border:1.5px dashed var(--border);border-radius:var(--r);padding:1.25rem;text-align:center;color:var(--muted);cursor:pointer;font-size:.85rem}
+  .drop.has{border-color:var(--primary);color:var(--ink)} .drop img{max-height:180px;max-width:100%;border-radius:var(--r);margin-top:.5rem}
+  .modal textarea{width:100%;background:var(--ground);border:1px solid var(--border);border-radius:var(--r);color:var(--ink);
+    font-family:var(--sans);font-size:.9rem;padding:.55rem;resize:vertical;min-height:3.5rem}
+  .modal .row{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+  .modal button{font-family:var(--sans);font-weight:600;font-size:.88rem;padding:.6rem;border-radius:var(--r);cursor:pointer;border:1px solid var(--border)}
+  .modal .gen{background:var(--primary);border-color:var(--primary);color:#fff} .modal .gen:disabled{opacity:.5;cursor:wait}
+  .modal .cancel{background:transparent;color:var(--ink)}
+  .modal .status{font-size:.8rem;color:var(--muted);min-height:1rem;font-family:var(--mono)}
 </style></head>
 <body>
 <header>
+  <button class="newbtn" onclick="openIntake()">+ New post</button>
   <h1>Approvals <span style="color:var(--muted);font-weight:400">· The Conn</span></h1>
   <div class="summary" id="summary">loading…</div>
   <div class="filters" id="filters"></div>
 </header>
 <main id="grid"><div class="empty">loading…</div></main>
 <footer>the vault is the bus · approving flips <span style="color:var(--ink)">approved: true</span> · the drain ships within 15 min</footer>
+
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2>New post</h2>
+    <div>
+      <label>Photo</label>
+      <div class="drop" id="drop" onclick="document.getElementById('file').click()">
+        <span id="dropText">Tap to choose a photo</span>
+        <input type="file" id="file" accept="image/*" style="display:none" onchange="pickFile(this)">
+        <div id="preview"></div>
+      </div>
+    </div>
+    <div>
+      <label>What is it? (product, price, who it's for)</label>
+      <textarea id="hint" placeholder="e.g. 30oz teacher tumbler, engraved with her name, $48"></textarea>
+    </div>
+    <div class="status" id="istatus"></div>
+    <div class="row">
+      <button class="cancel" onclick="closeIntake()">Cancel</button>
+      <button class="gen" id="genBtn" onclick="submitIntake()">Generate draft</button>
+    </div>
+  </div>
+</div>
 <script>
 const FILTERS=[["actionable","Needs you"],["ready","Ready"],["blocked","Blocked"],["scheduled","Scheduled"],["skipped","Skipped"],["all","All"]];
 let filter="actionable", cards=[], lastSig="";
@@ -458,6 +592,34 @@ function card(c){
 async function act(kind,file){
   await fetch('/api/'+kind,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({file})});
   await load();
+}
+
+// ── intake (+ New post) ──
+let intakeFile=null;
+function openIntake(){document.getElementById('overlay').classList.add('on');}
+function closeIntake(){document.getElementById('overlay').classList.remove('on');intakeFile=null;document.getElementById('preview').innerHTML='';document.getElementById('dropText').textContent='Tap to choose a photo';document.getElementById('drop').classList.remove('has');document.getElementById('hint').value='';document.getElementById('istatus').textContent='';}
+function pickFile(input){
+  const f=input.files[0]; if(!f) return;
+  intakeFile=f;
+  document.getElementById('dropText').textContent=f.name;
+  document.getElementById('drop').classList.add('has');
+  const r=new FileReader(); r.onload=e=>{document.getElementById('preview').innerHTML='<img src="'+e.target.result+'">';}; r.readAsDataURL(f);
+}
+async function submitIntake(){
+  const hint=document.getElementById('hint').value.trim();
+  const st=document.getElementById('istatus'); const btn=document.getElementById('genBtn');
+  if(!intakeFile){st.textContent='Choose a photo first.';return;}
+  if(!hint){st.textContent='Tell me what it is.';return;}
+  btn.disabled=true; st.textContent='Uploading photo + writing copy… (~15s)';
+  try{
+    const base64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(intakeFile);});
+    const resp=await fetch('/api/intake',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({hint,filename:intakeFile.name,contentType:intakeFile.type||'image/jpeg',base64})});
+    const d=await resp.json();
+    if(d.ok){st.textContent='Draft created ✓'; closeIntake(); filter='actionable'; await load(); render(true);}
+    else{st.textContent='Failed: '+(d.error||'unknown');}
+  }catch(e){st.textContent='Failed: '+e.message;}
+  finally{btn.disabled=false;}
 }
 function setFilter(k){filter=k;render(true);}
 async function load(){
