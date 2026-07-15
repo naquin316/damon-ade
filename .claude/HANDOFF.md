@@ -58,27 +58,29 @@ jobs, and the deferred RYA-177 cleanups.
     image + sidecar; test artifacts removed after.
   - **DOOR 3 (Telegram)** — `apps/desktop/scripts/intake-telegram.ts` +
     `scripts/intake-telegram.sh` + `scripts/com.ryan.intake-telegram.plist`. Long-poll
-    `getUpdates` listener on the Hermes bot; photo + caption → download largest size →
-    draft → reply with the slug. Caption = hint. Only Ryan's chat id honored. Persisted
-    offset (`~/.ade/intake-telegram-offset.json`). KeepAlive daemon. **Boots + resolves
-    creds + long-polls the Bot API cleanly** (full photo round-trip needs Ryan's phone,
-    but it reuses the exact `createDraft` path door 2 proved).
+    `getUpdates` listener; photo + caption → download largest size → draft → reply with
+    the slug. Caption = hint. Only Ryan's chat id honored. Persisted offset
+    (`~/.ade/intake-telegram-offset.json`). KeepAlive daemon.
+    - **Uses a DEDICATED bot `@HLD_intake_bot`, NOT Roux2** (`dca174f`). Roux2 is
+      Hermes's inbound channel — `ai.hermes.gateway` already long-polls getUpdates on
+      it, and Telegram allows one getUpdates consumer per bot; the first load fought
+      Hermes (live 409s). Token: `op://Code Secrets/shell-secrets/INTAKE_BOT_TOKEN`,
+      resolved by `intake-telegram.sh` as `TELEGRAM_BOT_TOKEN`. Chat id = Ryan's user id
+      (same for any bot).
+    - **LOADED + listening cleanly** on the dedicated bot (single consumer, no webhook,
+      no new 409). Round-trip validated up to the DM; download/draft/reply is the exact
+      `createDraft` path door 2 proved end-to-end.
 
 ## Next steps (operational, in order) — the build is done
-1. **Load the two intake launchd jobs** (both deliberately NOT loaded — a standing
-   background change left for Ryan's ok). They resolve their own secrets headlessly:
-   ```
-   cp scripts/com.ryan.intake-folder.plist ~/Library/LaunchAgents/
-   launchctl load ~/Library/LaunchAgents/com.ryan.intake-folder.plist
-   cp scripts/com.ryan.intake-telegram.plist ~/Library/LaunchAgents/
-   launchctl load ~/Library/LaunchAgents/com.ryan.intake-telegram.plist
-   ```
-   Folder door: check `~/.ade/intake-folder.log`. Telegram door: DM the bot a photo +
-   caption, watch `~/.ade/intake-telegram.log` and the queue.
-2. **Live smoke-test each loaded door once** (folder: drop a real product photo;
-   Telegram: DM one) → verify the card lands → approve via the new picker → let the
-   drain ship (then cancel the Blotato schedule if it was just a test).
-3. **(Deferred, RYA-177)** rotate the leaked Blotato key (still live in an iCloud
+- **DONE — both intake launchd jobs are loaded.** `com.ryan.intake-folder` (every
+  300s) and `com.ryan.intake-telegram` (KeepAlive, on `@HLD_intake_bot`) are installed
+  in `~/Library/LaunchAgents/` and running. `com.ryan.drain-queue` still runs `--ship`
+  every 15 min. Logs: `~/.ade/{intake-folder,intake-telegram,drain-queue}.log`.
+1. **Final live smoke-test of door 3** — DM a photo + caption to `@HLD_intake_bot`,
+   confirm the card lands + the bot replies. (Door 2 already proven; door 1 already
+   proven.) Then approve one via the new picker → let the drain ship → cancel the
+   Blotato schedule if it was just a test.
+2. **(Deferred, RYA-177)** rotate the leaked Blotato key (still live in an iCloud
    transcript); make the drain skip the Blotato `listAccounts` call when 0 approved
    (saves ~96 idle API calls/day).
 
