@@ -3,20 +3,21 @@
 <!--
   Intake DOOR 3 — Telegram photo intake (RYA-166 intake).
 
-  A persistent long-poll listener on the Hermes bot. Send the bot a product photo
-  with a caption and a pending draft appears in the Approval Queue (upload -> HLD
-  copy -> note), then flows through the normal approve -> drain -> ship path. The
-  caption is the hint. Only Ryan's own chat id is honored.
+  A persistent long-poll listener on a DEDICATED intake bot (NOT Hermes's Roux2 bot,
+  which ai.hermes.gateway already long-polls — Telegram allows one getUpdates
+  consumer per bot). Send the bot a product photo with a caption and a pending draft
+  appears in the Approval Queue (upload -> HLD copy -> note), then flows through the
+  normal approve -> drain -> ship path. The caption is the hint. Only Ryan's own chat
+  id is honored.
 
   KeepAlive true, RunAtLoad true: this is a daemon, not a timer. getUpdates
   long-polls (50s server-side wait), so it's near-idle between messages. If it dies,
   launchd restarts it; the persisted offset (~/.ade/intake-telegram-offset.json)
   means no photo is processed twice.
 
-  Runs via intake-telegram.sh, which resolves BLOTATO_API_KEY (1Password
-  service-account pipeline) plus TELEGRAM_BOT_TOKEN (~/.hermes/.env) and
-  TELEGRAM_CHAT_ID (~/.config/hld/foreman-worker.env CHAT_ID) — the same sources the
-  drain's notifier uses.
+  Runs via intake-telegram.sh, which resolves BLOTATO_API_KEY and the dedicated
+  INTAKE_BOT_TOKEN (both op://Code Secrets/shell-secrets, 1Password service-account
+  pipeline) plus TELEGRAM_CHAT_ID (~/.config/hld/foreman-worker.env CHAT_ID).
 
   Install:
     cp scripts/com.ryan.intake-telegram.plist ~/Library/LaunchAgents/

@@ -31,20 +31,30 @@ if [ -z "$BLOTATO_API_KEY" ] || [ "${BLOTATO_API_KEY#op://}" != "$BLOTATO_API_KE
   exit 1
 fi
 
-# Telegram creds — same sources as drain-queue.sh: bot token in ~/.hermes/.env, the
-# personal chat id in ~/.config/hld/foreman-worker.env as CHAT_ID.
-if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] && [ -f "$HOME/.hermes/.env" ]; then
-  # shellcheck disable=SC1091
-  TELEGRAM_BOT_TOKEN="$(set -a; source "$HOME/.hermes/.env" 2>/dev/null; printf '%s' "${TELEGRAM_BOT_TOKEN:-}")"
-fi
+# Telegram bot — a DEDICATED intake bot, NOT the Hermes/Roux2 bot. Roux2 is Hermes's
+# inbound channel (ai.hermes.gateway long-polls getUpdates on it); Telegram allows
+# exactly ONE getUpdates consumer per bot, so a second listener on Roux2 fights Hermes
+# for every message. This door therefore uses its own bot, whose token lives beside
+# BLOTATO_API_KEY: op://Code Secrets/shell-secrets/INTAKE_BOT_TOKEN (already resolved
+# into ~/.secrets.env by the op inject above). The chat id is still Ryan's user id
+# (same value for any bot), sourced from ~/.config/hld/foreman-worker.env CHAT_ID.
+export TELEGRAM_BOT_TOKEN="${INTAKE_BOT_TOKEN:-}"
 if [ -z "${TELEGRAM_CHAT_ID:-}" ] && [ -f "$HOME/.config/hld/foreman-worker.env" ]; then
   # shellcheck disable=SC1091
   TELEGRAM_CHAT_ID="$(set -a; source "$HOME/.config/hld/foreman-worker.env" 2>/dev/null; printf '%s' "${CHAT_ID:-${TELEGRAM_CHAT_ID:-}}")"
 fi
-export TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID
+export TELEGRAM_CHAT_ID
 
-if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-  echo "intake-telegram: TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID unresolved." >&2
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ "${TELEGRAM_BOT_TOKEN#op://}" != "$TELEGRAM_BOT_TOKEN" ]; then
+  echo "intake-telegram: INTAKE_BOT_TOKEN unresolved. Add a DEDICATED bot token:" >&2
+  echo "  1. Telegram @BotFather -> /newbot -> copy the token" >&2
+  echo "  2. 1Password -> 'Code Secrets' -> shell-secrets -> add field INTAKE_BOT_TOKEN" >&2
+  echo "  3. echo 'export INTAKE_BOT_TOKEN=\"op://Code Secrets/shell-secrets/INTAKE_BOT_TOKEN\"' >> ~/.secrets.op.zsh" >&2
+  echo "  4. refresh-secrets" >&2
+  exit 1
+fi
+if [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+  echo "intake-telegram: TELEGRAM_CHAT_ID unresolved (CHAT_ID in ~/.config/hld/foreman-worker.env)." >&2
   exit 1
 fi
 
