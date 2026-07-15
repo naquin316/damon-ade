@@ -74,6 +74,23 @@ interface CardView {
 		| "unknown";
 	verdict: string;
 	escalation: string | null;
+	scheduledTime: string | null;
+	postIds: string[];
+}
+
+/** Format an ISO time for display in Central. */
+function fmtWhen(iso: string | null): string | null {
+	if (!iso) return null;
+	const t = Date.parse(iso);
+	if (!Number.isFinite(t)) return null;
+	return new Date(t).toLocaleString("en-US", {
+		timeZone: "America/Chicago",
+		weekday: "short",
+		month: "short",
+		day: "numeric",
+		hour: "numeric",
+		minute: "2-digit",
+	});
 }
 
 /** Display-only frontmatter read — tolerant, best-effort, never throws. */
@@ -123,12 +140,22 @@ function buildCard(
 	const slug = (file.split("/").pop() ?? file).replace(/\.md$/, "");
 	const escalation = extractEscalation(raw);
 
+	const scheduledTime = fmField(raw, "scheduled_time");
+	const postIds = (fmField(raw, "blotato_post_ids") ?? "")
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+
 	let state: CardView["state"];
 	let verdict: string;
 
 	if (note.status === "scheduled") {
 		state = "scheduled";
-		verdict = "Scheduled ✓";
+		const when = fmtWhen(scheduledTime);
+		// A note the drain scheduled records scheduled_time; a note hand-marked
+		// `scheduled` in an older session has none, and there is no real schedule
+		// behind it — say so rather than imply a time we don't have.
+		verdict = when ? `Scheduled for ${when} CT` : "Marked scheduled (no time recorded)";
 	} else if (note.status === "skipped") {
 		state = "skipped";
 		verdict = "Skipped";
@@ -178,6 +205,8 @@ function buildCard(
 		state,
 		verdict,
 		escalation,
+		scheduledTime,
+		postIds,
 	};
 }
 
@@ -360,6 +389,9 @@ const PAGE = /* html */ `<!doctype html>
   .skip{background:transparent;color:var(--ink)}
   .approved-tag{grid-column:1/-1;text-align:center;font-size:.8rem;color:var(--ok);font-weight:600;padding:.4rem}
   .terminal-tag{grid-column:1/-1;text-align:center;font-size:.8rem;color:var(--muted);padding:.4rem}
+  .sched{grid-column:1/-1;text-align:center;padding:.3rem;display:flex;flex-direction:column;gap:.25rem}
+  .sched-when{font-size:.82rem;color:var(--primary);font-weight:600}
+  .sched a{font-size:.74rem;color:var(--muted);text-decoration:none} .sched a:hover{color:var(--ink)}
   .empty{grid-column:1/-1;text-align:center;color:var(--muted);padding:3rem}
   footer{text-align:center;color:var(--muted);font-size:.72rem;font-family:var(--mono);padding:1rem}
 </style></head>
@@ -414,7 +446,8 @@ function card(c){
       \${c.copy?\`<div class="copy" id="copy-\${esc(c.slug)}">\${esc(c.copy)}</div>
         <button class="expand" onclick="document.getElementById('copy-\${esc(c.slug)}').classList.toggle('open');this.remove()">Read full copy</button>\`:'<div class="verdict" style="color:var(--bad)">no publishable copy</div>'}
       <div class="actions">
-        \${terminal?\`<div class="terminal-tag">\${esc(c.verdict)}</div>\`:
+        \${c.state==="scheduled"?\`<div class="sched"><div class="sched-when">\${esc(c.verdict)}</div>\${c.postIds.length?\`<a href="https://my.blotato.com/scheduler" target="_blank" rel="noopener">View / reschedule on Blotato ↗</a>\`:""}</div>\`:
+          terminal?\`<div class="terminal-tag">\${esc(c.verdict)}</div>\`:
           (c.approved===true?\`<div class="approved-tag">✓ Approved — awaiting next sweep</div><button class="skip" onclick="act('skip','\${esc(c.file)}')" style="grid-column:1/-1">Undo (skip)</button>\`:
           \`<button class="approve" \${disabled?'disabled':''} onclick="act('approve','\${esc(c.file)}')">Approve</button>
            <button class="skip" onclick="act('skip','\${esc(c.file)}')">Skip</button>\`)}
