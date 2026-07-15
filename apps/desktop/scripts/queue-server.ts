@@ -79,6 +79,9 @@ interface CardView {
 	escalation: string | null;
 	scheduledTime: string | null;
 	postIds: string[];
+	/** `status: scheduled` but no blotato_post_ids — a past session marked it done
+	 *  without ever booking it, so it will never post. Offer a re-queue. */
+	orphaned: boolean;
 }
 
 /** Format an ISO time for display in Central. */
@@ -152,15 +155,19 @@ function buildCard(
 	let state: CardView["state"];
 	let verdict: string;
 
+	// A note the drain really scheduled carries blotato_post_ids. One marked
+	// `scheduled` by a past session without them was never booked — it will never
+	// post, and looking "done" is exactly why it's dangerous.
+	const orphaned = note.status === "scheduled" && postIds.length === 0;
+
 	if (note.status === "scheduled") {
 		state = "scheduled";
 		const when = fmtWhen(scheduledTime);
-		// A note the drain scheduled records scheduled_time; a note hand-marked
-		// `scheduled` in an older session has none, and there is no real schedule
-		// behind it — say so rather than imply a time we don't have.
-		verdict = when
-			? `Scheduled for ${when} CT`
-			: "Marked scheduled (no time recorded)";
+		verdict = orphaned
+			? "Marked scheduled, but never booked — it won't post"
+			: when
+				? `Scheduled for ${when} CT`
+				: "Scheduled ✓";
 	} else if (note.status === "skipped") {
 		state = "skipped";
 		verdict = "Skipped";
@@ -212,6 +219,7 @@ function buildCard(
 		escalation,
 		scheduledTime,
 		postIds,
+		orphaned,
 	};
 }
 
@@ -329,7 +337,9 @@ const server = Bun.serve({
 
 		if (
 			req.method === "POST" &&
-			(url.pathname === "/api/approve" || url.pathname === "/api/skip")
+			(url.pathname === "/api/approve" ||
+				url.pathname === "/api/skip" ||
+				url.pathname === "/api/requeue")
 		) {
 			const { file } = (await req.json().catch(() => ({}))) as {
 				file?: string;
@@ -343,11 +353,14 @@ const server = Bun.serve({
 
 			const raw = readFileSync(path, "utf8");
 			// Approve = tick the checkbox the drain reads (leave status pending; the
-			// checkbox IS the gate). Skip = mark it skipped, which also clears any tick.
+			// checkbox IS the gate). Skip = mark it skipped. Re-queue = rescue an
+			// orphaned "scheduled" note back to a fresh pending card.
 			const next =
 				url.pathname === "/api/approve"
 					? upsertFrontmatter(raw, { approved: "true" })
-					: upsertFrontmatter(raw, { status: "skipped", approved: "false" });
+					: url.pathname === "/api/requeue"
+						? upsertFrontmatter(raw, { status: "pending", approved: "false" })
+						: upsertFrontmatter(raw, { status: "skipped", approved: "false" });
 			writeFileSync(path, next, "utf8");
 			return Response.json({ ok: true });
 		}
@@ -458,6 +471,9 @@ const PAGE = /* html */ `<!doctype html>
   .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--border)}
   .card.ready::before{background:var(--ok)} .card.blocked::before,.card.needs-review::before{background:var(--bad)}
   .card.scheduled::before{background:var(--primary)} .card.shipping::before{background:var(--warn)}
+  .card.orphaned::before{background:var(--bad)}
+  .orphan{grid-column:1/-1;display:flex;flex-direction:column;gap:.45rem}
+  .orphan-msg{font-size:.8rem;color:var(--bad);font-weight:600;text-align:center}
   .thumb{aspect-ratio:1/1;background:#0e0e0e;display:flex;align-items:center;justify-content:center;overflow:hidden}
   .thumb img{width:100%;height:100%;object-fit:cover} .thumb .none{color:var(--muted);font-size:.8rem}
   .body{padding:.85rem .9rem 1rem;display:flex;flex-direction:column;gap:.6rem;flex:1}
@@ -553,7 +569,7 @@ function render(force){
   f.innerHTML=FILTERS.map(([k,l])=>\`<button class="\${k===filter?'on':''}" onclick="setFilter('\${k}')">\${l}</button>\`).join("");
   const shown=cards.filter(c=>{
     if(filter==="all")return true;
-    if(filter==="actionable")return (c.status==="pending"||c.status==="approved")||c.state==="needs-review";
+    if(filter==="actionable")return (c.status==="pending"||c.status==="approved")||c.state==="needs-review"||c.orphaned;
     if(filter==="ready")return c.state==="ready";
     if(filter==="blocked")return c.state==="blocked"||c.state==="needs-review";
     if(filter==="scheduled")return c.status==="scheduled"||c.state==="shipping";
@@ -571,7 +587,7 @@ function card(c){
   const chips=[c.brand,c.platforms.join(" + "),c.grade&&('★ '+c.grade.split(' ')[0]),c.runId&&('run '+c.runId.slice(0,8)),c.source]
     .filter(Boolean).map((x,i)=>\`<span class="chip \${/★/.test(x)?'grade':''}">\${esc(x)}</span>\`).join("");
   const age=c.ageDays!=null?\`<span class="chip">\${c.ageDays}d old</span>\`:"";
-  return \`<div class="card \${c.state}">
+  return \`<div class="card \${c.orphaned?'orphaned':c.state}">
     <div class="thumb">\${c.media?\`<img src="\${esc(c.media)}" onerror="this.parentNode.innerHTML='<span class=none>image unreachable</span>'">\`:'<span class="none">no media</span>'}</div>
     <div class="body">
       <div class="chips">\${chips}\${age}</div>
@@ -580,7 +596,8 @@ function card(c){
       \${c.copy?\`<div class="copy" id="copy-\${esc(c.slug)}">\${esc(c.copy)}</div>
         <button class="expand" onclick="document.getElementById('copy-\${esc(c.slug)}').classList.toggle('open');this.remove()">Read full copy</button>\`:'<div class="verdict" style="color:var(--bad)">no publishable copy</div>'}
       <div class="actions">
-        \${c.state==="scheduled"?\`<div class="sched"><div class="sched-when">\${esc(c.verdict)}</div>\${c.postIds.length?\`<a href="https://my.blotato.com/scheduler" target="_blank" rel="noopener">View / reschedule on Blotato ↗</a>\`:""}</div>\`:
+        \${c.orphaned?\`<div class="orphan"><div class="orphan-msg">⚠️ \${esc(c.verdict)}</div><button class="approve" onclick="act('requeue','\${esc(c.file)}')">Re-queue</button></div>\`:
+          c.state==="scheduled"?\`<div class="sched"><div class="sched-when">\${esc(c.verdict)}</div>\${c.postIds.length?\`<a href="https://my.blotato.com/scheduler" target="_blank" rel="noopener">View / reschedule on Blotato ↗</a>\`:""}</div>\`:
           terminal?\`<div class="terminal-tag">\${esc(c.verdict)}</div>\`:
           (c.approved===true?\`<div class="approved-tag">✓ Approved — awaiting next sweep</div><button class="skip" onclick="act('skip','\${esc(c.file)}')" style="grid-column:1/-1">Undo (skip)</button>\`:
           \`<button class="approve" \${disabled?'disabled':''} onclick="act('approve','\${esc(c.file)}')">Approve</button>
