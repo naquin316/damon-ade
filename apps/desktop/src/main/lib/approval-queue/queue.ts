@@ -369,7 +369,8 @@ export function resolveScheduledTime(
 const FM_BLOCK = /^(---\n)([\s\S]*?)(\n---)/;
 
 /**
- * Return `raw` with its frontmatter `status` set, plus any extra fields upserted.
+ * Return `raw` with the given frontmatter fields upserted (set if present, appended
+ * if not), preserving every other byte.
  *
  * Deliberately a surgical line edit rather than a
  * `splitFrontmatter` -> mutate -> `joinFrontmatter` round-trip. That round-trip runs
@@ -378,12 +379,14 @@ const FM_BLOCK = /^(---\n)([\s\S]*?)(\n---)/;
  * fallback exists to rescue — a note whose YAML doesn't parse comes back from
  * `splitFrontmatter` as `{}`, and writing that out would erase the post. Editing one
  * line leaves the other bytes alone, so a note we can only partly understand
- * survives being claimed.
+ * survives being edited.
+ *
+ * Used by the drain (claim/schedule/park) AND by the web viewer's approve/skip, so a
+ * human ticking approve from a phone writes the file identically to the machine.
  */
-export function withStatus(
+export function upsertFrontmatter(
 	raw: string,
-	status: string,
-	extra: Record<string, string> = {},
+	fields: Record<string, string>,
 ): string {
 	const m = raw.match(FM_BLOCK);
 	// No frontmatter: refuse to invent one. A note we can't read is a note we don't
@@ -391,20 +394,27 @@ export function withStatus(
 	if (!m) return raw;
 
 	let fm = m[2];
-	const upsert = (key: string, value: string) => {
+	for (const [key, value] of Object.entries(fields)) {
 		const line = `${key}: ${value}`;
 		const re = new RegExp(`^${key}:.*$`, "m");
-		// Function replacers throughout: these values come out of note text and can
-		// contain `$&` / `$1`, which are replacement-string specials.
+		// Function replacer: these values come out of note text and can contain
+		// `$&` / `$1`, which are replacement-string specials.
 		fm = re.test(fm) ? fm.replace(re, () => line) : `${fm}\n${line}`;
-	};
-
-	upsert("status", status);
-	for (const [k, v] of Object.entries(extra)) upsert(k, v);
+	}
 
 	return raw.replace(
 		FM_BLOCK,
 		(_all, open: string, _body: string, close: string) =>
 			`${open}${fm}${close}`,
 	);
+}
+
+/** Set `status` (plus any extra fields), preserving every other byte. Thin wrapper
+ *  over upsertFrontmatter — status is always written first. */
+export function withStatus(
+	raw: string,
+	status: string,
+	extra: Record<string, string> = {},
+): string {
+	return upsertFrontmatter(raw, { status, ...extra });
 }
