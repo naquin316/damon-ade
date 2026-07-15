@@ -189,7 +189,7 @@ function buildCard(
 			state = "ready";
 			verdict =
 				note.approved === true
-					? "Approved — ships next run"
+					? "Approved — ships within 15 min"
 					: "Ready — approve to ship";
 		} else if (c.kind === "blocked") {
 			state = "blocked";
@@ -599,7 +599,7 @@ function card(c){
         \${c.orphaned?\`<div class="orphan"><div class="orphan-msg">⚠️ \${esc(c.verdict)}</div><button class="approve" onclick="act('requeue','\${esc(c.file)}')">Re-queue</button></div>\`:
           c.state==="scheduled"?\`<div class="sched"><div class="sched-when">\${esc(c.verdict)}</div>\${c.postIds.length?\`<a href="https://my.blotato.com/scheduler" target="_blank" rel="noopener">View / reschedule on Blotato ↗</a>\`:""}</div>\`:
           terminal?\`<div class="terminal-tag">\${esc(c.verdict)}</div>\`:
-          (c.approved===true?\`<div class="approved-tag">✓ Approved — awaiting next sweep</div><button class="skip" onclick="act('skip','\${esc(c.file)}')" style="grid-column:1/-1">Undo (skip)</button>\`:
+          (c.approved===true?\`<div class="approved-tag">✓ Approved — posts to \${esc(c.platforms.join(", "))} within 15 min</div><button class="skip" onclick="act('skip','\${esc(c.file)}')" style="grid-column:1/-1">Undo (skip)</button>\`:
           \`<button class="approve" \${disabled?'disabled':''} onclick="act('approve','\${esc(c.file)}')">Approve</button>
            <button class="skip" onclick="act('skip','\${esc(c.file)}')">Skip</button>\`)}
       </div>
