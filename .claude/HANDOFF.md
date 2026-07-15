@@ -67,19 +67,26 @@ jobs, and the deferred RYA-177 cleanups.
       Hermes (live 409s). Token: `op://Code Secrets/shell-secrets/INTAKE_BOT_TOKEN`,
       resolved by `intake-telegram.sh` as `TELEGRAM_BOT_TOKEN`. Chat id = Ryan's user id
       (same for any bot).
-    - **LOADED + listening cleanly** on the dedicated bot (single consumer, no webhook,
-      no new 409). Round-trip validated up to the DM; download/draft/reply is the exact
-      `createDraft` path door 2 proved end-to-end.
+    - **LOADED + CONFIRMED LIVE end-to-end** — Ryan DM'd a real photo (AF Grandma Yeti
+      + Tango cat bowl) to `@HLD_intake_bot`; it uploaded, wrote on-target copy, and
+      rendered as an `intake (telegram)` card. Single consumer, no webhook, no new 409.
+- **`0055f26` — intake filenames are now collision-safe.** The slug is
+  `<date>-intake-<first-40-of-hint>`, so two same-day same-caption drops made the same
+  filename and the second SILENTLY overwrote the first (observed: the Telegram yeti
+  clobbered an earlier same-caption draft). `uniqueNotePath` appends `-2/-3/…`. All
+  three doors share it via `realIntakeDeps.writeNote`.
 
 ## Next steps (operational, in order) — the build is done
 - **DONE — both intake launchd jobs are loaded.** `com.ryan.intake-folder` (every
   300s) and `com.ryan.intake-telegram` (KeepAlive, on `@HLD_intake_bot`) are installed
   in `~/Library/LaunchAgents/` and running. `com.ryan.drain-queue` still runs `--ship`
   every 15 min. Logs: `~/.ade/{intake-folder,intake-telegram,drain-queue}.log`.
-1. **Final live smoke-test of door 3** — DM a photo + caption to `@HLD_intake_bot`,
-   confirm the card lands + the bot replies. (Door 2 already proven; door 1 already
-   proven.) Then approve one via the new picker → let the drain ship → cancel the
-   Blotato schedule if it was just a test.
+1. **Facebook needs a Page id.** Blotato's account payload for facebook exposes only
+   `{id, platform, username, fullname}` — NO pageId — so `classify` correctly blocks a
+   facebook post with `no-page-id`. To ship to facebook, find the Hand Lane Designs
+   facebook Page's numeric id and either set `pageId:` on the note or (better) wire it
+   as a per-facebook default in the drain (`ship.ts`/`classify`). instagram/pinterest/
+   threads are unaffected and ship fine. Interim: drop facebook from a note's platforms.
 2. **(Deferred, RYA-177)** rotate the leaked Blotato key (still live in an iCloud
    transcript); make the drain skip the Blotato `listAccounts` call when 0 approved
    (saves ~96 idle API calls/day).
