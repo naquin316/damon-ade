@@ -6,7 +6,7 @@
  * ONE place, so a door is just "read a photo + a hint, call runIntake".
  */
 import { spawnSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { uploadMedia } from "./blotato";
 import { type Draft, type IntakeDeps } from "./intake";
@@ -50,6 +50,23 @@ export function claudeGenerateCopy(system: string, prompt: string): string {
 }
 
 /**
+ * A collision-safe path in QUEUE_DIR for `filename`. Two intake drops on the same day
+ * with similar hints produce the same `<date>-intake-<slug>.md` (the slug is the first
+ * 40 chars of the hint), and a plain write would SILENTLY overwrite the earlier draft
+ * — real data loss (observed live: a Telegram photo clobbered an earlier same-caption
+ * draft). If the name is taken, append `-2`, `-3`, … before `.md`.
+ */
+function uniqueNotePath(filename: string): string {
+	const base = join(QUEUE_DIR, filename);
+	if (!existsSync(base)) return base;
+	const stem = filename.replace(/\.md$/, "");
+	for (let i = 2; ; i += 1) {
+		const candidate = join(QUEUE_DIR, `${stem}-${i}.md`);
+		if (!existsSync(candidate)) return candidate;
+	}
+}
+
+/**
  * The concrete IntakeDeps every door passes to createDraft: upload to Blotato,
  * generate copy with `claude -p`, and write the note into the queue. `apiKey` must
  * be a resolved Blotato key (not an unresolved `op://` ref) — the caller checks.
@@ -61,7 +78,7 @@ export function realIntakeDeps(apiKey: string): IntakeDeps {
 		generateCopy: (system, prompt) =>
 			Promise.resolve(claudeGenerateCopy(system, prompt)),
 		writeNote: (d: Draft) => {
-			const p = join(QUEUE_DIR, d.filename);
+			const p = uniqueNotePath(d.filename);
 			writeFileSync(p, d.content, "utf8");
 			return p;
 		},
