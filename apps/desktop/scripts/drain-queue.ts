@@ -18,7 +18,14 @@
  *
  * Design + invariants: docs/superpowers/specs/2026-07-14-approval-queue-consumer-design.md
  */
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import {
 	type BlotatoAccount,
@@ -26,6 +33,10 @@ import {
 	indexAccounts,
 	listAccounts,
 } from "../src/main/lib/approval-queue/blotato";
+import {
+	notify,
+	telegramNotifier,
+} from "../src/main/lib/approval-queue/notify";
 import {
 	type DrainDeps,
 	drain,
@@ -35,6 +46,28 @@ import {
 import { vaultRoot } from "../src/main/lib/orchestrator/vault";
 
 const QUEUE_DIR = join(vaultRoot(), "2. Areas/Social Media/Approval Queue");
+const ADE_HOME = process.env.ADE_HOME_DIR || join(homedir(), ".ade");
+// Which (file, block-reason) pairs have already been announced, so a note that
+// stays blocked doesn't re-alert every 15 minutes.
+const NOTIFIED_STATE = join(ADE_HOME, "drain-queue-notified.json");
+
+function loadSeenBlocked(): Set<string> {
+	try {
+		const raw = JSON.parse(readFileSync(NOTIFIED_STATE, "utf8"));
+		return new Set(Array.isArray(raw) ? raw : []);
+	} catch {
+		return new Set();
+	}
+}
+
+function saveSeenBlocked(seen: Set<string>): void {
+	try {
+		mkdirSync(ADE_HOME, { recursive: true });
+		writeFileSync(NOTIFIED_STATE, JSON.stringify([...seen]), "utf8");
+	} catch {
+		// dedup state is best-effort; worst case is a duplicate alert, never a crash
+	}
+}
 
 async function main(): Promise<void> {
 	const ship = process.argv.includes("--ship");
@@ -104,6 +137,27 @@ async function main(): Promise<void> {
 		console.log(formatCopyPreview(report));
 		console.log("\nRe-run with --ship to schedule the above.");
 	}
+
+	// Telegram feedback edge (RYA-166). Only on a real --ship run: a dry run changes
+	// nothing, so there is nothing to announce. Creds come from the environment
+	// (drain-queue.sh resolves them); absent creds -> silent no-op notifier, so an
+	// unconfigured machine simply gets no pings. Dedup state persists across ticks so
+	// a blocked note alerts once, not every 15 minutes.
+	if (ship) {
+		const notifier = telegramNotifier({
+			botToken: process.env.TELEGRAM_BOT_TOKEN,
+			chatId: process.env.TELEGRAM_CHAT_ID,
+			fetch: globalThis.fetch,
+		});
+		const { sent, seenBlocked } = await notify(
+			report,
+			notifier,
+			loadSeenBlocked(),
+		);
+		saveSeenBlocked(seenBlocked);
+		if (sent) console.log(`notified: ${sent} message(s)`);
+	}
+
 	if (report.errors.length) process.exitCode = 1;
 }
 

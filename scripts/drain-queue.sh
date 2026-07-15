@@ -53,4 +53,20 @@ if [ -z "$BLOTATO_API_KEY" ] || [ "${BLOTATO_API_KEY#op://}" != "$BLOTATO_API_KE
   exit 1
 fi
 
+# Telegram notifications (RYA-166 feedback edge). OPTIONAL: if these don't resolve,
+# the drain still ships — it just sends no pings (the notifier no-ops on absent
+# creds). The bot token lives in ~/.hermes/.env (the same bot that sends Ryan's
+# cloud routines); the personal chat id is in ~/.config/hld/foreman-worker.env as
+# CHAT_ID. We source those only for these two vars and don't let a missing file
+# break the run.
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] && [ -f "$HOME/.hermes/.env" ]; then
+  # shellcheck disable=SC1091
+  TELEGRAM_BOT_TOKEN="$(set -a; source "$HOME/.hermes/.env" 2>/dev/null; printf '%s' "${TELEGRAM_BOT_TOKEN:-}")"
+fi
+if [ -z "${TELEGRAM_CHAT_ID:-}" ] && [ -f "$HOME/.config/hld/foreman-worker.env" ]; then
+  # shellcheck disable=SC1091
+  TELEGRAM_CHAT_ID="$(set -a; source "$HOME/.config/hld/foreman-worker.env" 2>/dev/null; printf '%s' "${CHAT_ID:-${TELEGRAM_CHAT_ID:-}}")"
+fi
+export TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID
+
 exec "$BUN" "$REPO/apps/desktop/scripts/drain-queue.ts" "$@"
