@@ -163,12 +163,61 @@ export function extractCopy(raw: string): string | null {
 	const end = after.search(/^(?:##[ \t]|---[ \t]*$)/m);
 	let body = end === -1 ? after : after.slice(0, end);
 
-	const ann = body.search(
-		/^\*\*(?:Facebook|Instagram|X|Twitter|LinkedIn|Threads|TikTok|Pinterest)\b[^*\n]*version:?\*\*/im,
-	);
+	const ann = body.search(COPY_ANNOTATION);
 	if (ann !== -1) body = body.slice(0, ann);
 
 	return body.trim() || null;
+}
+
+/** A trailing `**<Platform> version:**` note-to-a-human that must never be published
+ *  and must survive an edit. Shared by extractCopy (strips it from what ships) and
+ *  replaceCopySection (keeps it in the file). */
+const COPY_ANNOTATION =
+	/^\*\*(?:Facebook|Instagram|X|Twitter|LinkedIn|Threads|TikTok|Pinterest)\b[^*\n]*version:?\*\*/im;
+
+/**
+ * Replace the body of `## Final copy (verbatim)` with `newCopy`, preserving every
+ * other byte — the same byte-surgical discipline as `upsertFrontmatter`, applied to
+ * the body. The viewer's Edit mode rewrites copy through this so a human editing a
+ * caption from a phone writes the file exactly as the intake generator did.
+ *
+ * A trailing `**<Platform> version:**` annotation inside the section is a note to a
+ * human, not copy (extractCopy strips it from what ships). It is PRESERVED here so
+ * editing the caption never silently drops the cross-post instruction.
+ *
+ * Returns null when there is no copy section to rewrite (caller decides what to do).
+ */
+export function replaceCopySection(raw: string, newCopy: string): string | null {
+	const head = raw.match(/^##[ \t]+Final copy[^\n]*\n/m);
+	if (!head || head.index === undefined) return null;
+
+	const start = head.index + head[0].length;
+	const after = raw.slice(start);
+	// Section ends at the next heading or a `---` rule (the approval footer), matching
+	// extractCopy's boundary exactly so the two agree on where "the copy" is.
+	const endRel = after.search(/^(?:##[ \t]|---[ \t]*$)/m);
+	const section = endRel === -1 ? after : after.slice(0, endRel);
+	const remainder = endRel === -1 ? "" : after.slice(endRel);
+
+	const annIdx = section.search(COPY_ANNOTATION);
+	const annotation = annIdx === -1 ? "" : section.slice(annIdx).trim();
+
+	const rebuilt = `\n${newCopy.trim()}\n${annotation ? `\n${annotation}\n` : ""}\n`;
+	return raw.slice(0, start) + rebuilt + remainder;
+}
+
+/** Parse a `crosspostable: [a, b, c]` YAML-ish list out of the raw frontmatter.
+ *  Lower-cased. Used by the viewer's WHERE picker to suggest cross-post targets; the
+ *  hard constraint is still the set of connected accounts. */
+export function parseCrosspostable(raw: string): string[] {
+	const fm = raw.match(/^---\n([\s\S]*?)\n---/)?.[1];
+	const line = fm ? scanField(fm, "crosspostable") : undefined;
+	if (!line) return [];
+	return line
+		.replace(/^\[|\]$/g, "")
+		.split(",")
+		.map((p) => p.trim().toLowerCase().replace(/^["']|["']$/g, ""))
+		.filter(Boolean);
 }
 
 export function readNote(file: string, raw: string): QueueNote {

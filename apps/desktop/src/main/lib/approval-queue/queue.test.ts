@@ -3,8 +3,10 @@ import type { BlotatoAccount } from "./blotato";
 import {
 	classify,
 	extractCopy,
+	parseCrosspostable,
 	parsePlatforms,
 	readNote,
+	replaceCopySection,
 	resolveScheduledTime,
 	STALE_CLAIM_MS,
 	withStatus,
@@ -573,5 +575,89 @@ describe("withStatus — surgical, non-destructive mutation", () => {
 
 	test("refuses to invent frontmatter on a note that has none", () => {
 		expect(withStatus("just a body", "scheduling")).toBe("just a body");
+	});
+});
+
+describe("replaceCopySection — byte-surgical body edit", () => {
+	test("swaps the copy, preserving frontmatter and the approval footer", () => {
+		const raw = note({ status: "pending", platform: "instagram" }, "old copy");
+		const out = replaceCopySection(raw, "brand new copy") as string;
+		expect(out).not.toBeNull();
+		expect(extractCopy(out)).toBe("brand new copy");
+		expect(out).toContain("platform: instagram");
+		expect(out).toContain("## Final copy (verbatim)");
+		expect(out).not.toContain("old copy");
+	});
+
+	test("round-trips through extractCopy for multi-line copy with hashtags", () => {
+		const raw = note({ status: "pending", platform: "instagram" }, "x");
+		const copy = "line one\nline two\n\n#hld #newbraunfels #handengraved";
+		const out = replaceCopySection(raw, copy) as string;
+		expect(extractCopy(out)).toBe(copy);
+	});
+
+	test("preserves a trailing **Facebook version:** annotation across an edit", () => {
+		const raw = [
+			"---",
+			"status: pending",
+			"platform: instagram + facebook",
+			"---",
+			"",
+			"## Final copy (verbatim)",
+			"",
+			"original caption",
+			"",
+			"**Facebook version:** same copy, drop the hashtags.",
+			"",
+			"---",
+			"footer",
+		].join("\n");
+		const out = replaceCopySection(raw, "edited caption") as string;
+		// The annotation is a note to a human — it must survive, but must NOT ship.
+		expect(out).toContain("**Facebook version:** same copy, drop the hashtags.");
+		expect(extractCopy(out)).toBe("edited caption");
+		expect(out).toContain("footer");
+	});
+
+	test("preserves an unparseable-YAML note (the 4f17f3f lesson)", () => {
+		const raw = [
+			"---",
+			"status: pending",
+			"grade: 9.0/10 Note: fine",
+			"---",
+			"",
+			"## Final copy (verbatim)",
+			"",
+			"before",
+			"",
+			"---",
+		].join("\n");
+		const out = replaceCopySection(raw, "after") as string;
+		expect(out).toContain("grade: 9.0/10 Note: fine");
+		expect(extractCopy(out)).toBe("after");
+	});
+
+	test("returns null when there is no copy section to rewrite", () => {
+		expect(replaceCopySection("---\nstatus: pending\n---\n\njust a body", "x")).toBeNull();
+	});
+});
+
+describe("parseCrosspostable", () => {
+	test("parses a YAML list", () => {
+		const raw = note({
+			platform: "instagram",
+			crosspostable: "[facebook, pinterest, threads]",
+		});
+		expect(parseCrosspostable(raw)).toEqual(["facebook", "pinterest", "threads"]);
+	});
+
+	test("lower-cases and drops quotes", () => {
+		const raw = note({ platform: "instagram", crosspostable: '["Facebook", Threads]' });
+		expect(parseCrosspostable(raw)).toEqual(["facebook", "threads"]);
+	});
+
+	test("empty or absent -> []", () => {
+		expect(parseCrosspostable(note({ platform: "instagram" }))).toEqual([]);
+		expect(parseCrosspostable(note({ platform: "instagram", crosspostable: "" }))).toEqual([]);
 	});
 });

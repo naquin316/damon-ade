@@ -31,8 +31,10 @@ import {
 import { createDraft } from "../src/main/lib/approval-queue/intake";
 import {
 	classify,
+	parseCrosspostable,
 	type QueueNote,
 	readNote,
+	replaceCopySection,
 	upsertFrontmatter,
 } from "../src/main/lib/approval-queue/queue";
 import { splitFrontmatter } from "../src/main/lib/orchestrator/frontmatter";
@@ -57,6 +59,9 @@ interface CardView {
 	status: string;
 	approved: boolean | null;
 	platforms: string[];
+	/** Cross-post targets the agent suggested — a hint for the WHERE picker; the hard
+	 *  constraint is still the set of connected Blotato accounts. */
+	crosspostable: string[];
 	media: string | null;
 	copy: string | null;
 	// provenance + display
@@ -206,6 +211,7 @@ function buildCard(
 		status: note.status,
 		approved: note.approved,
 		platforms: note.platforms,
+		crosspostable: parseCrosspostable(raw),
 		media: note.media,
 		copy: note.copy,
 		brand: fmField(raw, "brand"),
@@ -294,6 +300,32 @@ function claudeGenerateCopy(system: string, prompt: string): string {
 	return parsed.result;
 }
 
+/** Sanitize a client-sent platform list to lower-cased, deduped, safe tokens. Keeps
+ *  only `a-z0-9-` so nothing a client sends can smuggle newlines/YAML into the
+ *  frontmatter line we build (`platform: a + b`). */
+function cleanPlatforms(v: unknown): string[] {
+	if (!Array.isArray(v)) return [];
+	const out: string[] = [];
+	for (const p of v) {
+		const s = String(p ?? "")
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-z0-9-]/g, "");
+		if (s && !out.includes(s)) out.push(s);
+	}
+	return out;
+}
+
+/** Coerce a client value to an ISO timestamp only if it parses AND is in the future.
+ *  A past/garbage time returns null, so the caller falls back to the drain's default
+ *  delay rather than scheduling in the past (which the drain would also reject). */
+function futureIso(v: unknown): string | null {
+	if (typeof v !== "string" || !v.trim()) return null;
+	const t = Date.parse(v);
+	if (!Number.isFinite(t) || t <= Date.now()) return null;
+	return new Date(t).toISOString();
+}
+
 /** Resolve a POSTed file path back to a real queue note — defends against a client
  *  sending a path outside the queue dir. */
 function resolveQueueFile(file: string): string | null {
@@ -335,11 +367,36 @@ const server = Bun.serve({
 			});
 		}
 
+		// Approve = tick the checkbox the drain reads AND commit the human's WHERE/WHEN
+		// choice: `platform: a + b` (fans out to one Blotato post per platform) and an
+		// optional `scheduled_time` (the drain honors it; absent = next free slot ~10min
+		// out). The checkbox stays the gate; status stays pending.
+		if (req.method === "POST" && url.pathname === "/api/approve") {
+			const body = (await req.json().catch(() => ({}))) as {
+				file?: string;
+				platforms?: unknown;
+				scheduledTime?: unknown;
+			};
+			const path = body.file ? resolveQueueFile(body.file) : null;
+			if (!path)
+				return Response.json(
+					{ ok: false, error: "unknown note" },
+					{ status: 400 },
+				);
+
+			const fields: Record<string, string> = { approved: "true" };
+			const platforms = cleanPlatforms(body.platforms);
+			if (platforms.length) fields.platform = platforms.join(" + ");
+			const iso = futureIso(body.scheduledTime);
+			if (iso) fields.scheduled_time = iso;
+
+			writeFileSync(path, upsertFrontmatter(readFileSync(path, "utf8"), fields));
+			return Response.json({ ok: true });
+		}
+
 		if (
 			req.method === "POST" &&
-			(url.pathname === "/api/approve" ||
-				url.pathname === "/api/skip" ||
-				url.pathname === "/api/requeue")
+			(url.pathname === "/api/skip" || url.pathname === "/api/requeue")
 		) {
 			const { file } = (await req.json().catch(() => ({}))) as {
 				file?: string;
@@ -352,17 +409,107 @@ const server = Bun.serve({
 				);
 
 			const raw = readFileSync(path, "utf8");
-			// Approve = tick the checkbox the drain reads (leave status pending; the
-			// checkbox IS the gate). Skip = mark it skipped. Re-queue = rescue an
-			// orphaned "scheduled" note back to a fresh pending card.
+			// Skip = mark it skipped. Re-queue = rescue an orphaned "scheduled" note back
+			// to a fresh pending card.
 			const next =
-				url.pathname === "/api/approve"
-					? upsertFrontmatter(raw, { approved: "true" })
-					: url.pathname === "/api/requeue"
-						? upsertFrontmatter(raw, { status: "pending", approved: "false" })
-						: upsertFrontmatter(raw, { status: "skipped", approved: "false" });
+				url.pathname === "/api/requeue"
+					? upsertFrontmatter(raw, { status: "pending", approved: "false" })
+					: upsertFrontmatter(raw, { status: "skipped", approved: "false" });
 			writeFileSync(path, next, "utf8");
 			return Response.json({ ok: true });
+		}
+
+		// Edit a PENDING card in place: rewrite the copy, change WHERE (platforms),
+		// change/clear WHEN (scheduled_time), and/or swap the photo — all byte-surgical
+		// (upsertFrontmatter + replaceCopySection), never a YAML round-trip. Refuses a
+		// note the machine already owns (a booked post can't be un-shipped from here).
+		if (req.method === "POST" && url.pathname === "/api/edit") {
+			const body = (await req.json().catch(() => ({}))) as {
+				file?: string;
+				copy?: unknown;
+				platforms?: unknown;
+				scheduledTime?: unknown;
+				clearScheduled?: unknown;
+				media?: { base64?: string; filename?: string; contentType?: string };
+			};
+			const path = body.file ? resolveQueueFile(body.file) : null;
+			if (!path)
+				return Response.json(
+					{ ok: false, error: "unknown note" },
+					{ status: 400 },
+				);
+
+			let raw = readFileSync(path, "utf8");
+			const note = readNote(path, raw);
+			if (note.status === "scheduling" || note.status === "scheduled") {
+				return Response.json(
+					{
+						ok: false,
+						error: `already ${note.status} — cancel it in Blotato before editing`,
+					},
+					{ status: 409 },
+				);
+			}
+
+			try {
+				const fields: Record<string, string> = {};
+
+				// Optional photo swap → a fresh Blotato-hosted URL.
+				let newMedia: string | null = null;
+				if (body.media?.base64) {
+					const apiKey = process.env.BLOTATO_API_KEY;
+					if (!apiKey || apiKey.startsWith("op://")) {
+						return Response.json(
+							{ ok: false, error: "no BLOTATO_API_KEY — cannot upload media" },
+							{ status: 400 },
+						);
+					}
+					const { publicUrl } = await uploadMedia(
+						{ fetch: globalThis.fetch, apiKey },
+						{
+							bytes: new Uint8Array(Buffer.from(body.media.base64, "base64")),
+							filename: body.media.filename || "edit.jpg",
+							contentType: body.media.contentType || "image/jpeg",
+						},
+					);
+					newMedia = publicUrl;
+					fields.media = publicUrl;
+				}
+
+				const platforms = cleanPlatforms(body.platforms);
+				if (platforms.length) fields.platform = platforms.join(" + ");
+
+				const iso = futureIso(body.scheduledTime);
+				if (iso) fields.scheduled_time = iso;
+				// Explicit "next free slot" clears any prior time (blank → drain default).
+				else if (body.clearScheduled === true && note.scheduledTime)
+					fields.scheduled_time = "";
+
+				if (Object.keys(fields).length)
+					raw = upsertFrontmatter(raw, fields);
+
+				if (typeof body.copy === "string" && body.copy.trim()) {
+					const rewritten = replaceCopySection(raw, body.copy);
+					if (!rewritten) {
+						return Response.json(
+							{
+								ok: false,
+								error: "no '## Final copy (verbatim)' section to edit",
+							},
+							{ status: 422 },
+						);
+					}
+					raw = rewritten;
+				}
+
+				writeFileSync(path, raw, "utf8");
+				return Response.json({ ok: true, media: newMedia });
+			} catch (e) {
+				return Response.json(
+					{ ok: false, error: e instanceof Error ? e.message : String(e) },
+					{ status: 500 },
+				);
+			}
 		}
 
 		// Intake front door (web): a photo (base64) + a hint -> upload -> HLD copy ->
@@ -490,6 +637,8 @@ const PAGE = /* html */ `<!doctype html>
   .copy:not(.open)::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2.5rem;
     background:linear-gradient(transparent,var(--card))}
   .expand{align-self:flex-start;background:none;border:none;color:var(--primary);font-size:.76rem;cursor:pointer;padding:0}
+  .editlink{grid-column:1/-1;background:none;border:none;color:var(--muted);font-size:.76rem;cursor:pointer;padding:.2rem;text-decoration:underline}
+  .editlink:hover{color:var(--ink)}
   .escalation{background:rgba(224,163,62,.1);border:1px solid var(--warn);border-radius:var(--r);
     padding:.55rem .65rem;font-size:.82rem;color:#f0d29a}
   .escalation b{color:var(--warn);display:block;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.2rem;font-family:var(--mono)}
@@ -520,6 +669,21 @@ const PAGE = /* html */ `<!doctype html>
   .modal .gen{background:var(--primary);border-color:var(--primary);color:#fff} .modal .gen:disabled{opacity:.5;cursor:wait}
   .modal .cancel{background:transparent;color:var(--ink)}
   .modal .status{font-size:.8rem;color:var(--muted);min-height:1rem;font-family:var(--mono)}
+  .modal .preview{font-family:var(--serif);font-size:.9rem;line-height:1.5;color:#cfcfcf;
+    background:var(--ground);border:1px solid var(--border);border-radius:var(--r);padding:.5rem .6rem;
+    max-height:5rem;overflow:hidden}
+  .checks{display:flex;flex-wrap:wrap;gap:.4rem}
+  .checks label{display:inline-flex;align-items:center;gap:.4rem;font-size:.84rem;color:var(--ink);
+    border:1px solid var(--border);border-radius:999px;padding:.28rem .7rem;cursor:pointer;user-select:none}
+  .checks label:has(input:checked){border-color:var(--primary);background:rgba(74,144,226,.14)}
+  .checks label.sug::after{content:"suggested";font-family:var(--mono);font-size:.6rem;color:var(--muted);margin-left:.1rem}
+  .checks input{accent-color:var(--primary);margin:0}
+  .when{display:flex;flex-direction:column;gap:.4rem}
+  .when label{display:flex;align-items:center;gap:.45rem;font-size:.84rem;color:var(--ink);cursor:pointer;margin:0}
+  .when input[type=datetime-local]{background:var(--ground);border:1px solid var(--border);border-radius:var(--r);
+    color:var(--ink);font-family:var(--sans);font-size:.85rem;padding:.4rem .5rem;color-scheme:dark}
+  .when input[type=datetime-local]:disabled{opacity:.4}
+  .modal .save{background:var(--ok);border-color:var(--ok);color:#08150f} .modal .save:disabled{opacity:.5;cursor:wait}
 </style></head>
 <body>
 <header>
@@ -553,10 +717,96 @@ const PAGE = /* html */ `<!doctype html>
     </div>
   </div>
 </div>
+
+<div class="overlay" id="approveOverlay">
+  <div class="modal">
+    <h2>Approve &amp; schedule</h2>
+    <div class="preview" id="apPreview"></div>
+    <div>
+      <label>Where</label>
+      <div class="checks" id="apWhere"></div>
+    </div>
+    <div>
+      <label>When</label>
+      <div class="when">
+        <label><input type="radio" name="apWhen" value="slot" checked onchange="apToggleWhen()"> Next free slot (~15 min)</label>
+        <label><input type="radio" name="apWhen" value="at" onchange="apToggleWhen()"> At a specific time</label>
+        <input type="datetime-local" id="apAt" disabled>
+      </div>
+    </div>
+    <div class="status" id="apStatus"></div>
+    <div class="row">
+      <button class="cancel" onclick="closeApprove()">Cancel</button>
+      <button class="gen" id="apBtn" onclick="confirmApprove()">Approve &amp; schedule</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editOverlay">
+  <div class="modal">
+    <h2>Edit post</h2>
+    <div>
+      <label>Photo</label>
+      <div class="drop" id="edDrop" onclick="document.getElementById('edFile').click()">
+        <span id="edDropText">Tap to replace the photo</span>
+        <input type="file" id="edFile" accept="image/*" style="display:none" onchange="edPickFile(this)">
+        <div id="edPreview"></div>
+      </div>
+    </div>
+    <div>
+      <label>Copy</label>
+      <textarea id="edCopy" style="min-height:8rem"></textarea>
+    </div>
+    <div>
+      <label>Where</label>
+      <div class="checks" id="edWhere"></div>
+    </div>
+    <div>
+      <label>When</label>
+      <div class="when">
+        <label><input type="radio" name="edWhen" value="slot" onchange="edToggleWhen()"> Next free slot (~15 min)</label>
+        <label><input type="radio" name="edWhen" value="at" onchange="edToggleWhen()"> At a specific time</label>
+        <input type="datetime-local" id="edAt" disabled>
+      </div>
+    </div>
+    <div class="status" id="edStatus"></div>
+    <div class="row">
+      <button class="cancel" onclick="closeEdit()">Cancel</button>
+      <button class="save" id="edBtn" onclick="submitEdit()">Save changes</button>
+    </div>
+  </div>
+</div>
 <script>
 const FILTERS=[["actionable","Needs you"],["ready","Ready"],["blocked","Blocked"],["scheduled","Scheduled"],["skipped","Skipped"],["all","All"]];
-let filter="actionable", cards=[], lastSig="";
+let filter="actionable", cards=[], lastSig="", connected=[];
 const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// ── shared modal helpers (WHERE + WHEN, used by both the approve picker and edit) ──
+const cardByFile=f=>cards.find(c=>c.file===f);
+// Build the WHERE checkboxes. Options = connected accounts (the hard constraint); if
+// Blotato isn't connected we fall back to the note's own platforms so editing still
+// works offline. Pre-checked = the note's current platforms; crosspostable ones get a
+// subtle "suggested" tag.
+function buildWhere(containerId,current,crosspostable){
+  const opts=(connected&&connected.length?connected:current).slice().sort();
+  const cur=new Set(current||[]); const sug=new Set(crosspostable||[]);
+  document.getElementById(containerId).innerHTML=opts.map(p=>
+    \`<label class="\${sug.has(p)&&!cur.has(p)?'sug':''}"><input type="checkbox" value="\${esc(p)}" \${cur.has(p)?'checked':''}>\${esc(p)}</label>\`
+  ).join("")||'<span style="color:var(--muted);font-size:.8rem">no connected accounts</span>';
+}
+const whereValues=containerId=>[...document.querySelectorAll('#'+containerId+' input:checked')].map(i=>i.value);
+// ISO -> the value a <input type=datetime-local> expects, in LOCAL time.
+function isoToLocalInput(iso){
+  const t=Date.parse(iso); if(!Number.isFinite(t)) return "";
+  const d=new Date(t-new Date().getTimezoneOffset()*60000);
+  return d.toISOString().slice(0,16);
+}
+// datetime-local value (local, no tz) -> ISO with tz. Returns null if empty/past.
+function localInputToIso(val){
+  if(!val) return null; const t=Date.parse(val);
+  if(!Number.isFinite(t)||t<=Date.now()) return null;
+  return new Date(t).toISOString();
+}
 
 function render(force){
   // Only rebuild the grid when the data or filter actually changed. A blind 5s
@@ -599,9 +849,10 @@ function card(c){
         \${c.orphaned?\`<div class="orphan"><div class="orphan-msg">⚠️ \${esc(c.verdict)}</div><button class="approve" onclick="act('requeue','\${esc(c.file)}')">Re-queue</button></div>\`:
           c.state==="scheduled"?\`<div class="sched"><div class="sched-when">\${esc(c.verdict)}</div>\${c.postIds.length?\`<a href="https://my.blotato.com/scheduler" target="_blank" rel="noopener">View / reschedule on Blotato ↗</a>\`:""}</div>\`:
           terminal?\`<div class="terminal-tag">\${esc(c.verdict)}</div>\`:
-          (c.approved===true?\`<div class="approved-tag">✓ Approved — posts to \${esc(c.platforms.join(", "))} within 15 min</div><button class="skip" onclick="act('skip','\${esc(c.file)}')" style="grid-column:1/-1">Undo (skip)</button>\`:
-          \`<button class="approve" \${disabled?'disabled':''} onclick="act('approve','\${esc(c.file)}')">Approve</button>
-           <button class="skip" onclick="act('skip','\${esc(c.file)}')">Skip</button>\`)}
+          (c.approved===true?\`<div class="approved-tag">✓ Approved — posts to \${esc(c.platforms.join(", "))} \${c.scheduledTime?'at '+esc(fmtLocal(c.scheduledTime)):'within 15 min'}</div><button class="skip" onclick="act('skip','\${esc(c.file)}')" style="grid-column:1/-1">Undo (skip)</button>\`:
+          \`<button class="approve" \${disabled?'disabled':''} onclick="openApprove('\${esc(c.file)}')">Approve</button>
+           <button class="skip" onclick="act('skip','\${esc(c.file)}')">Skip</button>
+           <button class="editlink" onclick="openEdit('\${esc(c.file)}')">Edit copy, where &amp; when</button>\`)}
       </div>
     </div>
   </div>\`;
@@ -638,11 +889,96 @@ async function submitIntake(){
   }catch(e){st.textContent='Failed: '+e.message;}
   finally{btn.disabled=false;}
 }
+// ── approve picker (WHERE + WHEN) ──
+let apFile=null;
+function fmtLocal(iso){const t=Date.parse(iso);if(!Number.isFinite(t))return "";return new Date(t).toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}
+function apToggleWhen(){document.getElementById('apAt').disabled=document.querySelector('input[name="apWhen"]:checked').value!=='at';}
+function openApprove(file){
+  const c=cardByFile(file); if(!c) return;
+  apFile=file;
+  document.getElementById('apPreview').textContent=(c.copy||'(no copy)').slice(0,180);
+  buildWhere('apWhere',c.platforms,c.crosspostable);
+  document.querySelector('input[name="apWhen"][value="slot"]').checked=true;
+  const at=document.getElementById('apAt');
+  at.value=isoToLocalInput(c.scheduledTime||new Date(Date.now()+3600000).toISOString());
+  at.disabled=true;
+  document.getElementById('apStatus').textContent='';
+  document.getElementById('approveOverlay').classList.add('on');
+}
+function closeApprove(){document.getElementById('approveOverlay').classList.remove('on');apFile=null;}
+async function confirmApprove(){
+  const st=document.getElementById('apStatus'), btn=document.getElementById('apBtn');
+  const platforms=whereValues('apWhere');
+  if(!platforms.length){st.textContent='Pick at least one place to post.';return;}
+  let scheduledTime=null;
+  if(document.querySelector('input[name="apWhen"]:checked').value==='at'){
+    scheduledTime=localInputToIso(document.getElementById('apAt').value);
+    if(!scheduledTime){st.textContent='Pick a time in the future.';return;}
+  }
+  btn.disabled=true; st.textContent='Scheduling…';
+  try{
+    const resp=await fetch('/api/approve',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({file:apFile,platforms,scheduledTime})});
+    const d=await resp.json();
+    if(d.ok){closeApprove();await load();render(true);}
+    else{st.textContent='Failed: '+(d.error||'unknown');}
+  }catch(e){st.textContent='Failed: '+e.message;} finally{btn.disabled=false;}
+}
+
+// ── edit a pending card ──
+let edFile=null, edNewFile=null;
+function edToggleWhen(){document.getElementById('edAt').disabled=document.querySelector('input[name="edWhen"]:checked').value!=='at';}
+function edPickFile(input){
+  const f=input.files[0]; if(!f) return; edNewFile=f;
+  document.getElementById('edDropText').textContent=f.name;
+  document.getElementById('edDrop').classList.add('has');
+  const r=new FileReader(); r.onload=e=>{document.getElementById('edPreview').innerHTML='<img src="'+e.target.result+'">';}; r.readAsDataURL(f);
+}
+function openEdit(file){
+  const c=cardByFile(file); if(!c) return;
+  edFile=file; edNewFile=null;
+  document.getElementById('edCopy').value=c.copy||'';
+  buildWhere('edWhere',c.platforms,c.crosspostable);
+  const hasTime=!!c.scheduledTime;
+  document.querySelector('input[name="edWhen"][value="'+(hasTime?'at':'slot')+'"]').checked=true;
+  const at=document.getElementById('edAt');
+  at.value=isoToLocalInput(c.scheduledTime||new Date(Date.now()+3600000).toISOString());
+  at.disabled=!hasTime;
+  document.getElementById('edPreview').innerHTML=c.media?'<img src="'+esc(c.media)+'">':'';
+  document.getElementById('edDropText').textContent=c.media?'Tap to replace the photo':'Tap to add a photo';
+  document.getElementById('edDrop').classList.toggle('has',!!c.media);
+  document.getElementById('edStatus').textContent='';
+  document.getElementById('editOverlay').classList.add('on');
+}
+function closeEdit(){document.getElementById('editOverlay').classList.remove('on');edFile=null;edNewFile=null;}
+async function submitEdit(){
+  const st=document.getElementById('edStatus'), btn=document.getElementById('edBtn');
+  const copy=document.getElementById('edCopy').value.trim();
+  const platforms=whereValues('edWhere');
+  if(!copy){st.textContent='Copy can\\'t be empty.';return;}
+  if(!platforms.length){st.textContent='Pick at least one place to post.';return;}
+  const atMode=document.querySelector('input[name="edWhen"]:checked').value==='at';
+  let scheduledTime=null;
+  if(atMode){scheduledTime=localInputToIso(document.getElementById('edAt').value);if(!scheduledTime){st.textContent='Pick a time in the future.';return;}}
+  btn.disabled=true; st.textContent=edNewFile?'Uploading photo + saving…':'Saving…';
+  try{
+    const payload={file:edFile,copy,platforms,scheduledTime,clearScheduled:!atMode};
+    if(edNewFile){
+      const base64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(edNewFile);});
+      payload.media={base64,filename:edNewFile.name,contentType:edNewFile.type||'image/jpeg'};
+    }
+    const resp=await fetch('/api/edit',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
+    const d=await resp.json();
+    if(d.ok){closeEdit();await load();render(true);}
+    else{st.textContent='Failed: '+(d.error||'unknown');}
+  }catch(e){st.textContent='Failed: '+e.message;} finally{btn.disabled=false;}
+}
+
 function setFilter(k){filter=k;render(true);}
 async function load(){
   const r=await fetch('/api/queue');const d=await r.json();
   cards=d.cards;
   const s=d.summary;
+  connected=s.connected||[];
   document.getElementById("summary").innerHTML=
     \`<span><b>\${s.waiting}</b> waiting</span>\`+
     (s.oldestDays?\` <span class="\${s.oldestDays>=3?'stale':''}"><b>\${s.oldestDays}d</b> oldest</span>\`:"")+
