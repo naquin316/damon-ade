@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Intake DOOR 2 — drop folder (RYA-166 intake).
+
+  Every 5 minutes: process any product photos waiting in
+  `2. Areas/Social Media/Intake/`. Each becomes a pending draft in the Approval
+  Queue (upload -> HLD copy -> note), then flows through the normal approve -> drain
+  -> ship path. Ryan drops a phone photo into the folder via iCloud Files or
+  Obsidian, with a descriptive filename or a sidecar `<name>.txt`, and a card
+  appears. No app required — launchd, so it works with RyanOS closed.
+
+  Runs via intake-folder.sh, which resolves BLOTATO_API_KEY through the same
+  1Password service-account pipeline the drain uses (op inject -> ~/.secrets.env,
+  unlocked by ~/.config/op/dev-workstation.token — headless, no biometric prompt).
+
+  Idle cost is one readdir; a `claude -p` call happens only when a new photo is
+  present. Processed images move to Intake/processed/ (failures to
+  Intake/processed/failed/) so nothing is handled — or billed — twice.
+
+  Install:
+    cp scripts/com.ryan.intake-folder.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.ryan.intake-folder.plist
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.ryan.intake-folder.plist
+  Watch:
+    tail -f ~/.ade/intake-folder.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ryan.intake-folder</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/ryannaquin/Code/damon-ade/scripts/intake-folder.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/ryannaquin/Code/damon-ade</string>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/ryannaquin/.ade/intake-folder.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ryannaquin/.ade/intake-folder.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/ryannaquin/.bun/bin:/Users/ryannaquin/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

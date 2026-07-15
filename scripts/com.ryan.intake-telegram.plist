@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Intake DOOR 3 — Telegram photo intake (RYA-166 intake).
+
+  A persistent long-poll listener on the Hermes bot. Send the bot a product photo
+  with a caption and a pending draft appears in the Approval Queue (upload -> HLD
+  copy -> note), then flows through the normal approve -> drain -> ship path. The
+  caption is the hint. Only Ryan's own chat id is honored.
+
+  KeepAlive true, RunAtLoad true: this is a daemon, not a timer. getUpdates
+  long-polls (50s server-side wait), so it's near-idle between messages. If it dies,
+  launchd restarts it; the persisted offset (~/.ade/intake-telegram-offset.json)
+  means no photo is processed twice.
+
+  Runs via intake-telegram.sh, which resolves BLOTATO_API_KEY (1Password
+  service-account pipeline) plus TELEGRAM_BOT_TOKEN (~/.hermes/.env) and
+  TELEGRAM_CHAT_ID (~/.config/hld/foreman-worker.env CHAT_ID) — the same sources the
+  drain's notifier uses.
+
+  Install:
+    cp scripts/com.ryan.intake-telegram.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.ryan.intake-telegram.plist
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.ryan.intake-telegram.plist
+  Watch:
+    tail -f ~/.ade/intake-telegram.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ryan.intake-telegram</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/ryannaquin/Code/damon-ade/scripts/intake-telegram.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/ryannaquin/Code/damon-ade</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/ryannaquin/.ade/intake-telegram.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ryannaquin/.ade/intake-telegram.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/ryannaquin/.bun/bin:/Users/ryannaquin/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>

@@ -19,7 +19,6 @@
  * The key is OPTIONAL: without it, cards still render but shippability shows
  * "unknown (no Blotato)" instead of ready/blocked.
  */
-import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -30,6 +29,10 @@ import {
 } from "../src/main/lib/approval-queue/blotato";
 import { createDraft } from "../src/main/lib/approval-queue/intake";
 import {
+	QUEUE_DIR,
+	realIntakeDeps,
+} from "../src/main/lib/approval-queue/intake-runner";
+import {
 	classify,
 	parseCrosspostable,
 	type QueueNote,
@@ -38,7 +41,6 @@ import {
 	upsertFrontmatter,
 } from "../src/main/lib/approval-queue/queue";
 import { splitFrontmatter } from "../src/main/lib/orchestrator/frontmatter";
-import { vaultRoot } from "../src/main/lib/orchestrator/vault";
 
 // Minimal ambient decl so `tsc --noEmit` (which doesn't load bun-types for this
 // script) accepts Bun.serve. Runtime is bun, where this is the real global.
@@ -50,7 +52,6 @@ declare const Bun: {
 	}): { port: number };
 };
 
-const QUEUE_DIR = join(vaultRoot(), "2. Areas/Social Media/Approval Queue");
 const PORT = Number(process.env.QUEUE_SERVER_PORT ?? 4319);
 
 interface CardView {
@@ -267,37 +268,6 @@ async function loadConnected(): Promise<Map<string, BlotatoAccount> | null> {
 		accountCache = { at: Date.now(), value: null };
 		return null;
 	}
-}
-
-/**
- * Generate caption copy via `claude -p`, reusing Ryan's subscription (no API key).
- * spawnSync with an ARGV ARRAY, not a shell string — so the RYA-176 injection class
- * (backticks/$ in a prompt executed by /bin/sh) simply cannot happen. Returns the
- * model's final text from `--output-format json`.
- */
-function claudeGenerateCopy(system: string, prompt: string): string {
-	const r = spawnSync(
-		"claude",
-		[
-			"-p",
-			prompt,
-			"--model",
-			"claude-opus-4-8[1m]",
-			"--append-system-prompt",
-			system,
-			"--output-format",
-			"json",
-		],
-		{ encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 120_000 },
-	);
-	if (r.status !== 0 || !r.stdout) {
-		throw new Error(
-			`claude copy-gen failed (status ${r.status}): ${(r.stderr || "").slice(0, 200)}`,
-		);
-	}
-	const parsed = JSON.parse(r.stdout) as { result?: string };
-	if (!parsed.result) throw new Error("claude copy-gen: no result in output");
-	return parsed.result;
 }
 
 /** Sanitize a client-sent platform list to lower-cased, deduped, safe tokens. Keeps
@@ -541,27 +511,13 @@ const server = Bun.serve({
 
 			try {
 				const bytes = new Uint8Array(Buffer.from(body.base64, "base64"));
-				const blotato = { fetch: globalThis.fetch, apiKey };
-				const { draft } = await createDraft(
-					{
-						upload: (f) => uploadMedia(blotato, f),
-						generateCopy: (system, prompt) =>
-							Promise.resolve(claudeGenerateCopy(system, prompt)),
-						writeNote: (d) => {
-							const p = join(QUEUE_DIR, d.filename);
-							writeFileSync(p, d.content, "utf8");
-							return p;
-						},
-						today: () => new Date().toISOString().slice(0, 10),
-					},
-					{
-						bytes,
-						filename: body.filename || "intake.jpg",
-						contentType: body.contentType || "image/jpeg",
-						hint: body.hint,
-						door: "web",
-					},
-				);
+				const { draft } = await createDraft(realIntakeDeps(apiKey), {
+					bytes,
+					filename: body.filename || "intake.jpg",
+					contentType: body.contentType || "image/jpeg",
+					hint: body.hint,
+					door: "web",
+				});
 				return Response.json({ ok: true, slug: draft.slug });
 			} catch (e) {
 				return Response.json(
