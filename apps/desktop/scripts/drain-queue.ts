@@ -43,6 +43,7 @@ import {
 	formatCopyPreview,
 	formatReport,
 } from "../src/main/lib/approval-queue/ship";
+import { TARGET_DEFAULTS } from "../src/main/lib/approval-queue/targets";
 import { vaultRoot } from "../src/main/lib/orchestrator/vault";
 
 const QUEUE_DIR = join(vaultRoot(), "2. Areas/Social Media/Approval Queue");
@@ -116,6 +117,7 @@ async function main(): Promise<void> {
 		read: (p) => readFileSync(p, "utf8"),
 		write: (p, c) => writeFileSync(p, c, "utf8"),
 		connected,
+		targetDefaults: TARGET_DEFAULTS,
 		send: (post, scheduledTime) =>
 			createPost(blotato, {
 				accountId: post.accountId,
@@ -124,6 +126,7 @@ async function main(): Promise<void> {
 				mediaUrls: post.mediaUrls,
 				scheduledTime,
 				...(post.pageId ? { pageId: post.pageId } : {}),
+				...(post.boardId ? { boardId: post.boardId } : {}),
 			}),
 		now: () => Date.now(),
 	};

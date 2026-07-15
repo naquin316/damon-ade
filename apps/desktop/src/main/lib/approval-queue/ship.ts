@@ -4,6 +4,7 @@ import {
 	type PlannedPost,
 	readNote,
 	resolveScheduledTime,
+	type TargetDefaults,
 	withStatus,
 } from "./queue";
 
@@ -22,6 +23,9 @@ export interface DrainDeps {
 	write(path: string, content: string): void;
 	/** platform -> connected Blotato account. */
 	connected: Map<string, BlotatoAccount>;
+	/** Per-platform target ids Blotato's account listing omits (facebook page,
+	 *  pinterest board). Optional — absent means those platforms block until set. */
+	targetDefaults?: TargetDefaults;
 	/** Send one post. Returns Blotato's post id. */
 	send(post: PlannedPost, scheduledTime: string): Promise<{ id: string }>;
 	now(): number;
@@ -64,7 +68,7 @@ export async function drain(
 		try {
 			const raw = deps.read(path);
 			const note = readNote(path, raw);
-			const c = classify(note, now, deps.connected);
+			const c = classify(note, now, deps.connected, deps.targetDefaults);
 
 			switch (c.kind) {
 				case "shippable": {

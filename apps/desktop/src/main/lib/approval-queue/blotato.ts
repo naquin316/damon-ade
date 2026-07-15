@@ -41,6 +41,8 @@ export interface CreatePostRequest {
 	scheduledTime: string;
 	/** Facebook requires a page id on `target`. */
 	pageId?: string;
+	/** Pinterest requires a board id on `target`. */
+	boardId?: string;
 }
 
 function headers(deps: BlotatoDeps): Record<string, string> {
@@ -93,6 +95,7 @@ export function buildPostBody(req: CreatePostRequest): unknown {
 			target: {
 				targetType: req.platform,
 				...(req.pageId ? { pageId: req.pageId } : {}),
+				...(req.boardId ? { boardId: req.boardId } : {}),
 			},
 		},
 		scheduledTime: req.scheduledTime,

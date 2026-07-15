@@ -40,6 +40,7 @@ import {
 	replaceCopySection,
 	upsertFrontmatter,
 } from "../src/main/lib/approval-queue/queue";
+import { TARGET_DEFAULTS } from "../src/main/lib/approval-queue/targets";
 import { splitFrontmatter } from "../src/main/lib/orchestrator/frontmatter";
 
 // Minimal ambient decl so `tsc --noEmit` (which doesn't load bun-types for this
@@ -190,7 +191,7 @@ function buildCard(
 		// Pending/approved: preview the drain's verdict AS IF approved, so a pending
 		// card already shows "ready" or the exact block.
 		const preview: QueueNote = { ...note, status: "approved", approved: true };
-		const c = classify(preview, Date.now(), connected);
+		const c = classify(preview, Date.now(), connected, TARGET_DEFAULTS);
 		if (c.kind === "shippable") {
 			state = "ready";
 			verdict =

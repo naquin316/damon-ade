@@ -31,6 +31,20 @@ const MEDIA_REQUIRED = new Set(["instagram", "tiktok", "youtube", "pinterest"]);
 /** Facebook's API requires a page id on `target`. */
 const PAGE_ID_REQUIRED = new Set(["facebook"]);
 
+/** Pinterest's API requires a board id — a pin has to land on a board. */
+const BOARD_ID_REQUIRED = new Set(["pinterest"]);
+
+/**
+ * Per-platform target ids Blotato needs but does NOT return from its account listing
+ * (facebook page id, pinterest board id). Injected into `classify` so "you never told
+ * me which page/board" is a testable classification, not a runtime surprise — and so
+ * the pure classifier stays free of config. A note's own `pageId:`/`boardId:` wins.
+ */
+export interface TargetDefaults {
+	facebookPageId?: string;
+	pinterestBoardId?: string;
+}
+
 export interface QueueNote {
 	file: string;
 	/** Lower-cased and trimmed. `pending` when absent — never `approved`. */
@@ -42,6 +56,7 @@ export interface QueueNote {
 	media: string | null;
 	accountId: string | null;
 	pageId: string | null;
+	boardId: string | null;
 	scheduledTime: string | null;
 	schedulingStarted: string | null;
 	/** The verbatim copy to publish, lifted from `## Final copy (verbatim)`. */
@@ -71,6 +86,7 @@ export interface PlannedPost {
 	platform: string;
 	accountId: string;
 	pageId?: string;
+	boardId?: string;
 	text: string;
 	mediaUrls: string[];
 }
@@ -81,6 +97,7 @@ export type BlockedReason =
 	| "no-copy"
 	| "no-connected-account"
 	| "no-page-id"
+	| "no-board-id"
 	| "unknown-status"
 	| "not-a-post";
 
@@ -257,6 +274,7 @@ export function readNote(file: string, raw: string): QueueNote {
 		media: pick("media") ?? null,
 		accountId: pick("accountId") ?? null,
 		pageId: pick("pageId") ?? null,
+		boardId: pick("boardId") ?? pick("board_id") ?? null,
 		scheduledTime: pick("scheduled_time") ?? null,
 		schedulingStarted: pick("scheduling_started") ?? null,
 		copy: extractCopy(raw),
@@ -286,6 +304,7 @@ export function classify(
 	note: QueueNote,
 	now: number,
 	connected: Map<string, BlotatoAccount>,
+	targetDefaults: TargetDefaults = {},
 ): Classification {
 	if (note.status === "scheduling") {
 		const started = note.schedulingStarted
@@ -376,8 +395,13 @@ export function classify(
 				detail: `${platform} requires a media URL`,
 			};
 		}
+		// Facebook page target: the note's own pageId wins, then the injected default
+		// (Blotato's account listing doesn't carry it), then whatever the account
+		// happens to expose.
 		const pageId =
-			note.pageId ?? (account.pageId ? String(account.pageId) : undefined);
+			note.pageId ??
+			(platform === "facebook" ? targetDefaults.facebookPageId : undefined) ??
+			(account.pageId ? String(account.pageId) : undefined);
 		if (PAGE_ID_REQUIRED.has(platform) && !pageId) {
 			return {
 				kind: "blocked",
@@ -385,12 +409,28 @@ export function classify(
 				detail: `${platform} requires a pageId (set 'pageId:' in the note)`,
 			};
 		}
+
+		// Pinterest board target: a pin has to land on a board. Note override, then the
+		// injected default.
+		const boardId =
+			platform === "pinterest"
+				? (note.boardId ?? targetDefaults.pinterestBoardId)
+				: undefined;
+		if (BOARD_ID_REQUIRED.has(platform) && !boardId) {
+			return {
+				kind: "blocked",
+				reason: "no-board-id",
+				detail: `${platform} requires a boardId (set 'boardId:' in the note)`,
+			};
+		}
+
 		posts.push({
 			platform,
 			// The note's explicit accountId wins — it pins the exact account a human
 			// reviewed. Fall back to the platform's connected account.
 			accountId: note.accountId ?? String(account.id),
 			...(pageId ? { pageId } : {}),
+			...(boardId ? { boardId } : {}),
 			text: note.copy,
 			mediaUrls,
 		});

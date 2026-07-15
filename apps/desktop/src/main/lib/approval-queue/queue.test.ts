@@ -392,6 +392,51 @@ describe("classify — account resolution", () => {
 	});
 });
 
+describe("classify — injected target defaults (facebook page, pinterest board)", () => {
+	// The real Blotato account listing carries NO pageId/boardId for these platforms.
+	const bare = new Map<string, BlotatoAccount>([
+		["facebook", { id: "5179", platform: "facebook" }],
+		["pinterest", { id: "4321", platform: "pinterest" }],
+	]);
+	const DEFAULTS = { facebookPageId: "100587251684586", pinterestBoardId: "718535384238926608" };
+
+	test("facebook uses the injected pageId when the account has none", () => {
+		const n = readNote("a.md", note({ status: "approved", platform: "facebook", media: "https://x/y.png" }));
+		const c = classify(n, NOW, bare, DEFAULTS);
+		expect(c.kind).toBe("shippable");
+		if (c.kind === "shippable") expect(c.posts[0]?.pageId).toBe("100587251684586");
+	});
+
+	test("pinterest is blocked without a board id anywhere", () => {
+		const n = readNote("a.md", note({ status: "approved", platform: "pinterest", media: "https://x/y.png" }));
+		const c = classify(n, NOW, bare); // no defaults
+		expect(c.kind).toBe("blocked");
+		if (c.kind === "blocked") expect(c.reason).toBe("no-board-id");
+	});
+
+	test("pinterest uses the injected boardId", () => {
+		const n = readNote("a.md", note({ status: "approved", platform: "pinterest", media: "https://x/y.png" }));
+		const c = classify(n, NOW, bare, DEFAULTS);
+		expect(c.kind).toBe("shippable");
+		if (c.kind === "shippable") expect(c.posts[0]?.boardId).toBe("718535384238926608");
+	});
+
+	test("a note's own boardId/pageId override the injected defaults", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "approved", platform: "pinterest", boardId: "999", media: "https://x/y.png" }),
+		);
+		const c = classify(n, NOW, bare, DEFAULTS);
+		if (c.kind === "shippable") expect(c.posts[0]?.boardId).toBe("999");
+	});
+
+	test("boardId default is NOT smeared onto non-pinterest platforms", () => {
+		const n = readNote("a.md", note({ status: "approved", platform: "instagram", media: "https://x/y.png" }));
+		const c = classify(n, NOW, CONNECTED, DEFAULTS);
+		if (c.kind === "shippable") expect(c.posts[0]?.boardId).toBeUndefined();
+	});
+});
+
 describe("classify — content gates", () => {
 	test("instagram without media is blocked, not failed", () => {
 		const n = readNote(

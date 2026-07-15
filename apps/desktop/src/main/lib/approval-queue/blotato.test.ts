@@ -75,6 +75,19 @@ describe("buildPostBody — shape verified against the live API", () => {
 		expect(b.post.target.pageId).toBe("page1");
 	});
 
+	test("pinterest carries boardId on target", () => {
+		const b = buildPostBody({
+			accountId: "4321",
+			platform: "pinterest",
+			text: "hi",
+			mediaUrls: ["https://x/y.png"],
+			scheduledTime: "2026-07-20T15:30:00.000Z",
+			boardId: "718535384238926608",
+		}) as { post: { target: Record<string, unknown> } };
+
+		expect(b.post.target.boardId).toBe("718535384238926608");
+	});
+
 	// An earlier scrape hallucinated these from a 404 page. They are not in the real
 	// contract; sending them is unverified guesswork.
 	test("does not send the hallucinated publishType / platformRequirements", () => {
