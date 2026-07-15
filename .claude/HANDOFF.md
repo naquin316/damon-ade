@@ -81,12 +81,15 @@ jobs, and the deferred RYA-177 cleanups.
   300s) and `com.ryan.intake-telegram` (KeepAlive, on `@HLD_intake_bot`) are installed
   in `~/Library/LaunchAgents/` and running. `com.ryan.drain-queue` still runs `--ship`
   every 15 min. Logs: `~/.ade/{intake-folder,intake-telegram,drain-queue}.log`.
-1. **Facebook needs a Page id.** Blotato's account payload for facebook exposes only
-   `{id, platform, username, fullname}` — NO pageId — so `classify` correctly blocks a
-   facebook post with `no-page-id`. To ship to facebook, find the Hand Lane Designs
-   facebook Page's numeric id and either set `pageId:` on the note or (better) wire it
-   as a per-facebook default in the drain (`ship.ts`/`classify`). instagram/pinterest/
-   threads are unaffected and ship fine. Interim: drop facebook from a note's platforms.
+1. **VERIFY the first live facebook + pinterest ship** (`cbbc968` wired the targets but
+   nothing has EVER published, so the REST target shape for those two is unproven).
+   `targets.ts` `TARGET_DEFAULTS` now injects HLD's facebook page `100587251684586` +
+   pinterest board `718535384238926608` (Ryan-supplied 2026-07-15), so a
+   facebook/pinterest note previews `ready`. When Ryan approves one to those platforms,
+   the drain schedules ~10 min out — watch that first post land in Blotato's scheduler;
+   if facebook/pinterest 4xx, the exact HTTP error shows up on the note as
+   `needs-review` and the target body shape in `blotato.ts` `buildPostBody` needs a
+   tweak (boardId/pageId currently sit on `target`). instagram/threads are already safe.
 2. **(Deferred, RYA-177)** rotate the leaked Blotato key (still live in an iCloud
    transcript); make the drain skip the Blotato `listAccounts` call when 0 approved
    (saves ~96 idle API calls/day).
