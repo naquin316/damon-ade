@@ -18,6 +18,15 @@ import type { TargetDefaults } from "./queue";
 export const TARGET_DEFAULTS: TargetDefaults = {
 	// facebook.com/Hand Lane Designs page
 	facebookPageId: "100587251684586",
-	// pinterest board Ryan wants HLD pins to land on
+	// pinterest board Ryan wants HLD pins to land on (kept for when pinterest is
+	// re-enabled below)
 	pinterestBoardId: "718535384238926608",
+	unavailable: {
+		// Pinterest 422'd on the first real ship (2026-07-15): the HLD Pinterest account
+		// is too new for 3rd-party API posting. Blotato requires ~2 weeks of manual
+		// warmup (1 pin/day, ramping up) or it risks a shadowban. RE-ENABLE ~2026-07-29
+		// by deleting this line once the account has been posting manually.
+		pinterest:
+			"Pinterest is too new for API posting — warm it up manually (~2 weeks, until ~2026-07-29) before re-enabling. Remove pinterest from this note to ship the rest.",
+	},
 };

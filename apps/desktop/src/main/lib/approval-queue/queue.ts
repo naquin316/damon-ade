@@ -43,6 +43,11 @@ const BOARD_ID_REQUIRED = new Set(["pinterest"]);
 export interface TargetDefaults {
 	facebookPageId?: string;
 	pinterestBoardId?: string;
+	/** platform -> why it currently can't post. A note targeting one is blocked BEFORE
+	 *  any send, so a bad platform can't half-ship a multi-target note (learned live:
+	 *  a too-new Pinterest 422'd after facebook+instagram had already gone out, leaving
+	 *  a half-live post at needs-review). */
+	unavailable?: Record<string, string>;
 }
 
 export interface QueueNote {
@@ -98,6 +103,7 @@ export type BlockedReason =
 	| "no-connected-account"
 	| "no-page-id"
 	| "no-board-id"
+	| "platform-unavailable"
 	| "unknown-status"
 	| "not-a-post";
 
@@ -378,6 +384,14 @@ export function classify(
 	const posts: PlannedPost[] = [];
 
 	for (const platform of note.platforms) {
+		// A platform explicitly disabled for API posting (e.g. a too-new account) blocks
+		// the WHOLE note here, before any send — so it can never leave the earlier
+		// platforms half-shipped. Fix by removing that platform from the note.
+		const unavailable = targetDefaults.unavailable?.[platform];
+		if (unavailable) {
+			return { kind: "blocked", reason: "platform-unavailable", detail: unavailable };
+		}
+
 		// Report, don't fail: the note stays `approved` and untouched, so fixing the
 		// gap and re-running ships it with no second approval.
 		const account = connected.get(platform);

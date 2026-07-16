@@ -435,6 +435,27 @@ describe("classify — injected target defaults (facebook page, pinterest board)
 		const c = classify(n, NOW, CONNECTED, DEFAULTS);
 		if (c.kind === "shippable") expect(c.posts[0]?.boardId).toBeUndefined();
 	});
+
+	test("an unavailable platform blocks the WHOLE note before any send", () => {
+		const conn = new Map<string, BlotatoAccount>([
+			["instagram", { id: "6789", platform: "instagram" }],
+			["pinterest", { id: "4321", platform: "pinterest" }],
+		]);
+		const n = readNote(
+			"a.md",
+			note({ status: "approved", platform: "instagram + pinterest", media: "https://x/y.png" }),
+		);
+		const c = classify(n, NOW, conn, {
+			pinterestBoardId: "b1",
+			unavailable: { pinterest: "too new" },
+		});
+		// Blocked, not a partial ship — instagram must not go out on its own.
+		expect(c.kind).toBe("blocked");
+		if (c.kind === "blocked") {
+			expect(c.reason).toBe("platform-unavailable");
+			expect(c.detail).toBe("too new");
+		}
+	});
 });
 
 describe("classify — content gates", () => {
