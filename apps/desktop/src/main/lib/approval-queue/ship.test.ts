@@ -236,3 +236,111 @@ describe("drain — blocked notes stay approved for a re-run", () => {
 		expect(h.fs["/q/a.md"]).toContain("status: approved");
 	});
 });
+
+describe("drain — post-publish confirmation (GET /posts/:id)", () => {
+	// A scheduled note with booked ids, whose scheduled_time has already passed.
+	const FIRED = "2026-07-14T11:00:00Z"; // an hour before NOW
+	function scheduledNote(ids: string, time = FIRED) {
+		return note({
+			status: "scheduled",
+			platform: "facebook + instagram",
+			media: "https://x/y.png",
+			blotato_post_ids: ids,
+			scheduled_time: time,
+		});
+	}
+	function pollHarness(
+		file: string,
+		statuses: Record<string, { status: string; publicUrl?: string }>,
+	) {
+		const fs: Record<string, string> = { "/q/a.md": file };
+		const effects: string[] = [];
+		const deps: DrainDeps = {
+			listNotes: () => Object.keys(fs),
+			read: (p) => fs[p],
+			write: (p, c) => {
+				effects.push(`write:${p}`);
+				fs[p] = c;
+			},
+			connected: CONNECTED,
+			send: async () => ({ id: "unused" }),
+			getPostStatus: async (id) => ({ id, ...(statuses[id] ?? { status: "unknown" }) }),
+			now: () => NOW,
+		};
+		return { fs, deps, effects };
+	}
+
+	test("all posts published -> status published + captured URLs", async () => {
+		const h = pollHarness(scheduledNote("p1,p2"), {
+			p1: { status: "published", publicUrl: "https://facebook.com/x" },
+			p2: { status: "published", publicUrl: "https://instagram.com/y" },
+		});
+		const r = await drain(h.deps, { ship: true });
+		expect(r.published[0]?.file).toBe("/q/a.md");
+		expect(r.published[0]?.urls).toEqual([
+			"https://facebook.com/x",
+			"https://instagram.com/y",
+		]);
+		expect(h.fs["/q/a.md"]).toContain("status: published");
+		expect(h.fs["/q/a.md"]).toContain("published_urls: https://facebook.com/x , https://instagram.com/y");
+	});
+
+	test("a failed post -> needs-review, never silently 'published'", async () => {
+		const h = pollHarness(scheduledNote("p1,p2"), {
+			p1: { status: "published" },
+			p2: { status: "failed" },
+		});
+		const r = await drain(h.deps, { ship: true });
+		expect(r.published).toEqual([]);
+		expect(r.needsReview[0]?.file).toBe("/q/a.md");
+		expect(h.fs["/q/a.md"]).toContain("status: needs-review");
+	});
+
+	test("still in flight -> left scheduled, reconfirmed next tick", async () => {
+		const h = pollHarness(scheduledNote("p1"), { p1: { status: "queued" } });
+		const r = await drain(h.deps, { ship: true });
+		expect(r.published).toEqual([]);
+		expect(h.effects).toEqual([]); // no write
+		expect(h.fs["/q/a.md"]).toContain("status: scheduled");
+	});
+
+	test("not yet fired (scheduled_time in the future) -> not polled", async () => {
+		let polled = false;
+		const fs: Record<string, string> = { "/q/a.md": scheduledNote("p1", "2026-07-14T18:00:00Z") };
+		const deps: DrainDeps = {
+			listNotes: () => Object.keys(fs),
+			read: (p) => fs[p],
+			write: () => {},
+			connected: CONNECTED,
+			send: async () => ({ id: "x" }),
+			getPostStatus: async (id) => {
+				polled = true;
+				return { id, status: "published" };
+			},
+			now: () => NOW,
+		};
+		await drain(deps, { ship: true });
+		expect(polled).toBe(false);
+	});
+
+	test("a transient poll error is treated as in-flight, not a failure", async () => {
+		const fs: Record<string, string> = { "/q/a.md": scheduledNote("p1") };
+		const deps: DrainDeps = {
+			listNotes: () => Object.keys(fs),
+			read: (p) => fs[p],
+			write: (p, c) => {
+				fs[p] = c;
+			},
+			connected: CONNECTED,
+			send: async () => ({ id: "x" }),
+			getPostStatus: async () => {
+				throw new Error("network blip");
+			},
+			now: () => NOW,
+		};
+		const r = await drain(deps, { ship: true });
+		expect(r.published).toEqual([]);
+		expect(r.needsReview).toEqual([]);
+		expect(fs["/q/a.md"]).toContain("status: scheduled");
+	});
+});

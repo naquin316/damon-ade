@@ -30,6 +30,7 @@ import { join } from "node:path";
 import {
 	type BlotatoAccount,
 	createPost,
+	getPostStatus,
 	indexAccounts,
 	listAccounts,
 } from "../src/main/lib/approval-queue/blotato";
@@ -128,6 +129,7 @@ async function main(): Promise<void> {
 				...(post.pageId ? { pageId: post.pageId } : {}),
 				...(post.boardId ? { boardId: post.boardId } : {}),
 			}),
+		getPostStatus: (id) => getPostStatus(blotato, id),
 		now: () => Date.now(),
 	};
 

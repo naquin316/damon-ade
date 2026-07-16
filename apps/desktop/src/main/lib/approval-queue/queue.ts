@@ -64,6 +64,8 @@ export interface QueueNote {
 	boardId: string | null;
 	scheduledTime: string | null;
 	schedulingStarted: string | null;
+	/** Blotato postSubmissionIds a scheduled note booked — polled to confirm publish. */
+	postIds: string[];
 	/** The verbatim copy to publish, lifted from `## Final copy (verbatim)`. */
 	copy: string | null;
 	/** The note's declared `type:` — some types are human deliverables, not posts. */
@@ -78,13 +80,21 @@ const KNOWN_STATUSES = new Set([
 	"approved",
 	"scheduling",
 	"scheduled",
+	"published",
 	"needs-review",
 	"skipped",
 ]);
 
 /** Statuses owned by the machine — the note is past the human gate, so the
- *  `approved` checkbox is irrelevant and must not re-trigger a send. */
-const MACHINE_STATUSES = new Set(["scheduled", "needs-review", "skipped"]);
+ *  `approved` checkbox is irrelevant and must not re-trigger a send. `published` is
+ *  the terminal success state the drain writes AFTER confirming the post actually
+ *  fired (distinct from `scheduled`, which only means "booked with Blotato"). */
+const MACHINE_STATUSES = new Set([
+	"scheduled",
+	"published",
+	"needs-review",
+	"skipped",
+]);
 
 /** One concrete post to send. A note targeting `instagram + facebook` yields two. */
 export interface PlannedPost {
@@ -283,6 +293,10 @@ export function readNote(file: string, raw: string): QueueNote {
 		boardId: pick("boardId") ?? pick("board_id") ?? null,
 		scheduledTime: pick("scheduled_time") ?? null,
 		schedulingStarted: pick("scheduling_started") ?? null,
+		postIds: (pick("blotato_post_ids") ?? "")
+			.split(",")
+			.map((s) => s.trim())
+			.filter(Boolean),
 		copy: extractCopy(raw),
 		type: (pick("type") ?? null)?.toLowerCase() ?? null,
 	};

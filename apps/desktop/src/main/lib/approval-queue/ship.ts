@@ -1,4 +1,4 @@
-import type { BlotatoAccount } from "./blotato";
+import type { BlotatoAccount, PostStatus } from "./blotato";
 import {
 	classify,
 	type PlannedPost,
@@ -28,6 +28,10 @@ export interface DrainDeps {
 	targetDefaults?: TargetDefaults;
 	/** Send one post. Returns Blotato's post id. */
 	send(post: PlannedPost, scheduledTime: string): Promise<{ id: string }>;
+	/** Poll a booked post's outcome (published/failed/in-flight) + its live URL.
+	 *  Optional — absent means the drain skips post-publish confirmation and leaves
+	 *  fired notes at `scheduled`. */
+	getPostStatus?(id: string): Promise<PostStatus>;
 	now(): number;
 }
 
@@ -36,6 +40,8 @@ export interface DrainReport {
 	shippable: { file: string; posts: PlannedPost[]; scheduledTime: string }[];
 	/** Actually claimed + sent. Empty unless `ship` is set. */
 	shipped: { file: string; ids: string[]; scheduledTime: string }[];
+	/** Confirmed live this run — a scheduled note whose posts all report `published`. */
+	published: { file: string; urls: string[] }[];
 	blocked: { file: string; reason: string; detail?: string }[];
 	needsReview: { file: string; since: string | null }[];
 	claimed: string[];
@@ -56,6 +62,7 @@ export async function drain(
 	const report: DrainReport = {
 		shippable: [],
 		shipped: [],
+		published: [],
 		blocked: [],
 		needsReview: [],
 		claimed: [],
@@ -68,6 +75,70 @@ export async function drain(
 		try {
 			const raw = deps.read(path);
 			const note = readNote(path, raw);
+
+			// Post-publish confirmation: a `scheduled` note whose scheduled time has
+			// passed gets its booked post ids polled. All `published` -> the terminal
+			// `published` status + the live URLs; any `failed` -> needs-review (a post
+			// may be partly live). Still-in-flight -> leave it `scheduled`, reconfirm
+			// next tick. Only on a real --ship run with a status poller wired.
+			if (
+				opts.ship &&
+				deps.getPostStatus &&
+				note.status === "scheduled" &&
+				note.postIds.length > 0
+			) {
+				const firedAt = note.scheduledTime
+					? Date.parse(note.scheduledTime)
+					: Number.NaN;
+				if (Number.isFinite(firedAt) && now >= firedAt) {
+					const poll = deps.getPostStatus;
+					const statuses = await Promise.all(
+						note.postIds.map((id) =>
+							poll(id).catch(
+								(e): PostStatus => ({
+									id,
+									// A transient poll error is NOT a publish failure — treat it
+									// as in-flight so a network blip can't false-flag needs-review.
+									status: e instanceof Error ? "unknown" : "unknown",
+								}),
+							),
+						),
+					);
+					const allPublished = statuses.every(
+						(s) => s.status === "published",
+					);
+					const anyFailed = statuses.some((s) => s.status === "failed");
+
+					if (allPublished) {
+						const urls = statuses
+							.map((s) => s.publicUrl)
+							.filter((u): u is string => Boolean(u));
+						deps.write(
+							path,
+							withStatus(raw, "published", {
+								...(urls.length
+									? { published_urls: urls.join(" , ") }
+									: {}),
+							}),
+						);
+						report.published.push({ file: path, urls });
+						continue;
+					}
+					if (anyFailed) {
+						deps.write(
+							path,
+							withStatus(raw, "needs-review", {
+								needs_review_reason:
+									"drain-queue: a scheduled post reports failed at publish time — check Blotato",
+							}),
+						);
+						report.needsReview.push({ file: path, since: null });
+						continue;
+					}
+					// still in flight — fall through; classify returns untouched.
+				}
+			}
+
 			const c = classify(note, now, deps.connected, deps.targetDefaults);
 
 			switch (c.kind) {
@@ -213,6 +284,14 @@ export function formatReport(
 				);
 			}
 		}
+	}
+
+	if (report.published.length) {
+		L.push(`  published     ${n(report.published.length)}`);
+		for (const p of report.published)
+			L.push(
+				`                   ${base(p.file)}${p.urls.length ? ` -> ${p.urls.join(", ")}` : ""}`,
+			);
 	}
 
 	L.push(`  blocked       ${n(report.blocked.length)}`);

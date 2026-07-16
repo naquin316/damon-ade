@@ -78,6 +78,7 @@ interface CardView {
 		| "ready"
 		| "blocked"
 		| "scheduled"
+		| "published"
 		| "skipped"
 		| "needs-review"
 		| "shipping"
@@ -86,6 +87,8 @@ interface CardView {
 	escalation: string | null;
 	scheduledTime: string | null;
 	postIds: string[];
+	/** Live post URLs once confirmed published. */
+	publishedUrls: string[];
 	/** `status: scheduled` but no blotato_post_ids — a past session marked it done
 	 *  without ever booking it, so it will never post. Offer a re-queue. */
 	orphaned: boolean;
@@ -167,7 +170,10 @@ function buildCard(
 	// post, and looking "done" is exactly why it's dangerous.
 	const orphaned = note.status === "scheduled" && postIds.length === 0;
 
-	if (note.status === "scheduled") {
+	if (note.status === "published") {
+		state = "published";
+		verdict = "Published ✓ — live";
+	} else if (note.status === "scheduled") {
 		state = "scheduled";
 		const when = fmtWhen(scheduledTime);
 		verdict = orphaned
@@ -227,6 +233,10 @@ function buildCard(
 		escalation,
 		scheduledTime,
 		postIds,
+		publishedUrls: (fmField(raw, "published_urls") ?? "")
+			.split(/\s*,\s*/)
+			.map((s) => s.trim())
+			.filter(Boolean),
 		orphaned,
 	};
 }
@@ -575,6 +585,7 @@ const PAGE = /* html */ `<!doctype html>
   .card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--border)}
   .card.ready::before{background:var(--ok)} .card.blocked::before,.card.needs-review::before{background:var(--bad)}
   .card.scheduled::before{background:var(--primary)} .card.shipping::before{background:var(--warn)}
+  .card.published::before{background:var(--ok)}
   .card.orphaned::before{background:var(--bad)}
   .orphan{grid-column:1/-1;display:flex;flex-direction:column;gap:.45rem}
   .orphan-msg{font-size:.8rem;color:var(--bad);font-weight:600;text-align:center}
@@ -588,6 +599,10 @@ const PAGE = /* html */ `<!doctype html>
   .verdict .dot{width:.5rem;height:.5rem;border-radius:50%;background:var(--muted);flex:none}
   .ready .verdict .dot{background:var(--ok)} .blocked .verdict .dot,.needs-review .verdict .dot{background:var(--bad)}
   .scheduled .verdict .dot{background:var(--primary)} .shipping .verdict .dot{background:var(--warn)}
+  .published .verdict .dot{background:var(--ok)}
+  .publinks{grid-column:1/-1;display:flex;flex-direction:column;gap:.2rem;padding:.2rem 0}
+  .publinks .live{font-size:.8rem;color:var(--ok);font-weight:600;text-align:center;margin-bottom:.15rem}
+  .publinks a{font-size:.76rem;color:var(--muted);text-decoration:none;text-align:center} .publinks a:hover{color:var(--ink)}
   .copy{font-family:var(--serif);font-size:.95rem;line-height:1.55;white-space:pre-wrap;color:#e6e6e6;
     max-height:8.5rem;overflow:hidden;position:relative;transition:max-height .2s}
   .copy.open{max-height:none}
@@ -734,7 +749,7 @@ const PAGE = /* html */ `<!doctype html>
   </div>
 </div>
 <script>
-const FILTERS=[["actionable","Needs you"],["ready","Ready"],["blocked","Blocked"],["scheduled","Scheduled"],["skipped","Skipped"],["all","All"]];
+const FILTERS=[["actionable","Needs you"],["ready","Ready"],["blocked","Blocked"],["scheduled","Scheduled"],["published","Live"],["skipped","Skipped"],["all","All"]];
 let filter="actionable", cards=[], lastSig="", connected=[];
 const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
@@ -780,6 +795,7 @@ function render(force){
     if(filter==="ready")return c.state==="ready";
     if(filter==="blocked")return c.state==="blocked"||c.state==="needs-review";
     if(filter==="scheduled")return c.status==="scheduled"||c.state==="shipping";
+    if(filter==="published")return c.status==="published";
     if(filter==="skipped")return c.status==="skipped";
     return true;
   });
@@ -788,7 +804,8 @@ function render(force){
   g.innerHTML=shown.map(card).join("");
 }
 function card(c){
-  const terminal=["scheduled","skipped","needs-review","shipping"].includes(c.state);
+  const terminal=["scheduled","published","skipped","needs-review","shipping"].includes(c.state);
+  const label=u=>{try{return new URL(u).hostname.replace(/^www\./,"").replace(/\.com$/,"");}catch{return u;}};
   const canApprove=c.state==="ready"||c.state==="unknown";
   const disabled=!!c.escalation||!canApprove;
   const chips=[c.brand,c.platforms.join(" + "),c.grade&&('★ '+c.grade.split(' ')[0]),c.runId&&('run '+c.runId.slice(0,8)),c.source]
@@ -804,6 +821,7 @@ function card(c){
         <button class="expand" onclick="document.getElementById('copy-\${esc(c.slug)}').classList.toggle('open');this.remove()">Read full copy</button>\`:'<div class="verdict" style="color:var(--bad)">no publishable copy</div>'}
       <div class="actions">
         \${c.orphaned?\`<div class="orphan"><div class="orphan-msg">⚠️ \${esc(c.verdict)}</div><button class="approve" onclick="act('requeue','\${esc(c.file)}')">Re-queue</button></div>\`:
+          c.state==="published"?\`<div class="publinks"><div class="live">\${esc(c.verdict)}</div>\${(c.publishedUrls||[]).map(u=>\`<a href="\${esc(u)}" target="_blank" rel="noopener">\${esc(label(u))} ↗</a>\`).join("")}</div>\`:
           c.state==="scheduled"?\`<div class="sched"><div class="sched-when">\${esc(c.verdict)}</div>\${c.postIds.length?\`<a href="https://my.blotato.com/scheduler" target="_blank" rel="noopener">View / reschedule on Blotato ↗</a>\`:""}</div>\`:
           terminal?\`<div class="terminal-tag">\${esc(c.verdict)}</div>\`:
           (c.approved===true?\`<div class="approved-tag">✓ Approved — posts to \${esc(c.platforms.join(", "))} \${c.scheduledTime?'at '+esc(fmtLocal(c.scheduledTime)):'within 15 min'}</div><button class="skip" onclick="act('skip','\${esc(c.file)}')" style="grid-column:1/-1">Undo (skip)</button>\`:

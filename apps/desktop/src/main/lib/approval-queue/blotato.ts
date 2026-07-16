@@ -139,6 +139,39 @@ export async function createPost(
 	return { id: String(id) };
 }
 
+export interface PostStatus {
+	id: string;
+	/** Blotato's lifecycle value — `published` is terminal-success; `failed` is
+	 *  terminal-failure; anything else (queued/processing/…) is still in flight. */
+	status: string;
+	publicUrl?: string;
+}
+
+/**
+ * Poll one scheduled post's outcome. Takes the `postSubmissionId` createPost returned
+ * (NOT the schedule id) — measured live 2026-07-15: `GET /v2/posts/:id` returns
+ * `{postSubmissionId, status, publicUrl}` once the scheduled time passes and the post
+ * actually fires. This is how the drain confirms a post really went out and captures
+ * its live URL, instead of trusting "scheduled" forever.
+ */
+export async function getPostStatus(
+	deps: BlotatoDeps,
+	id: string,
+): Promise<PostStatus> {
+	const res = await deps.fetch(
+		`${deps.baseUrl ?? BLOTATO_BASE_URL}/posts/${id}`,
+		{ headers: headers(deps) },
+	);
+	if (!res.ok) throw new Error(`getPostStatus failed: ${await readError(res)}`);
+	const json = (await res.json()) as Record<string, unknown>;
+	return {
+		id,
+		status: String(json.status ?? "unknown"),
+		publicUrl:
+			typeof json.publicUrl === "string" ? json.publicUrl : undefined,
+	};
+}
+
 export interface BlotatoSchedule {
 	id: string;
 	draft?: { target?: { targetType?: string }; content?: { text?: string } };

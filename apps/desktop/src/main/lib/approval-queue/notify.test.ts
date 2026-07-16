@@ -6,6 +6,7 @@ function report(over: Partial<DrainReport> = {}): DrainReport {
 	return {
 		shippable: [],
 		shipped: [],
+		published: [],
 		blocked: [],
 		needsReview: [],
 		claimed: [],

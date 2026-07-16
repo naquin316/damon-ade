@@ -66,6 +66,15 @@ export function buildMessages(
 		);
 	}
 
+	// published = confirmed live (the drain polled Blotato and every post fired). Once,
+	// naturally — writing `published` is a status change, inert next tick. The payoff
+	// message: the real links.
+	for (const p of report.published) {
+		messages.push(
+			`🎉 Published: ${base(p.file)}${p.urls.length ? `\n${p.urls.join("\n")}` : ""}`,
+		);
+	}
+
 	// Safety-critical: a needs-review note may be HALF-live (some platforms posted,
 	// then a failure). Loud, and named so Ryan can go straight to it.
 	for (const r of report.needsReview) {

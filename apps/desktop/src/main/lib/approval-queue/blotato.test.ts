@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	buildPostBody,
 	createPost,
+	getPostStatus,
 	indexAccounts,
 	listAccounts,
 	uploadMedia,
@@ -322,5 +323,36 @@ describe("listAccounts / indexAccounts", () => {
 			{ id: "2", platform: "instagram" },
 		]);
 		expect(idx.get("instagram")?.id).toBe("1");
+	});
+});
+
+describe("getPostStatus — confirm a booked post fired + its URL", () => {
+	test("parses status + publicUrl from GET /posts/:id", async () => {
+		const fetchMock = (async (url: string) => {
+			expect(String(url)).toContain("/posts/sub-123");
+			return new Response(
+				JSON.stringify({
+					postSubmissionId: "sub-123",
+					status: "published",
+					publicUrl: "https://www.threads.com/@handlanedesigns/post/abc",
+				}),
+				{ status: 200 },
+			);
+		}) as unknown as typeof globalThis.fetch;
+
+		const s = await getPostStatus(
+			{ fetch: fetchMock, apiKey: "k" },
+			"sub-123",
+		);
+		expect(s.status).toBe("published");
+		expect(s.publicUrl).toBe("https://www.threads.com/@handlanedesigns/post/abc");
+	});
+
+	test("throws on a non-2xx so a poll error can't read as 'published'", async () => {
+		const fetchMock = (async () =>
+			new Response("nope", { status: 404 })) as unknown as typeof globalThis.fetch;
+		await expect(
+			getPostStatus({ fetch: fetchMock, apiKey: "k" }, "missing"),
+		).rejects.toThrow(/getPostStatus failed/);
 	});
 });
