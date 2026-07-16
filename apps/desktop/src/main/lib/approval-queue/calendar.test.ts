@@ -118,4 +118,12 @@ describe("buildWeekGrid", () => {
 		const day = g.weeks[0].find((d) => d.date === "2026-07-15")!;
 		expect(day.events.length).toBe(1);
 	});
+
+	test("a cross-month week names both months in the title", () => {
+		// 2026-07-01 is a Wednesday; its week is Sun Jun 28 .. Sat Jul 4.
+		const g = buildWeekGrid([], "2026-07-01", "2026-07-01");
+		expect(g.weeks[0][0].date).toBe("2026-06-28");
+		expect(g.weeks[0][6].date).toBe("2026-07-04");
+		expect(g.title).toBe("Jun 28 – Jul 4, 2026");
+	});
 });

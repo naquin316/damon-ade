@@ -103,6 +103,8 @@ const MONTHS = [
 	"July", "August", "September", "October", "November", "December",
 ];
 
+const MON_SHORT = MONTHS.map((m) => m.slice(0, 3));
+
 export function buildMonthGrid(
 	events: CalEvent[],
 	anchor: string,
@@ -135,11 +137,6 @@ export function buildMonthGrid(
 		weeks,
 	};
 }
-
-const MON_SHORT = [
-	"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-	"Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
 
 export function buildWeekGrid(
 	events: CalEvent[],
