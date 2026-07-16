@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	buildMonthGrid,
+	buildWeekGrid,
 	type CalEvent,
 	centralDate,
 } from "./calendar";
@@ -92,5 +93,29 @@ describe("buildMonthGrid", () => {
 	test("an event with an unparseable whenISO is dropped, not thrown", () => {
 		const g = buildMonthGrid([ev({ whenISO: "nope" })], "2026-07-10", "2026-07-16");
 		expect(g.weeks.flat().every((d) => d.events.length === 0)).toBe(true);
+	});
+});
+
+describe("buildWeekGrid", () => {
+	test("one Sun..Sat week containing the anchor, all days inRange", () => {
+		// 2026-07-16 is a Thursday; its week is Sun Jul 12 .. Sat Jul 18.
+		const g = buildWeekGrid([], "2026-07-16", "2026-07-16");
+		expect(g.view).toBe("week");
+		expect(g.weeks.length).toBe(1);
+		expect(g.weeks[0].length).toBe(7);
+		expect(g.weeks[0][0].date).toBe("2026-07-12");
+		expect(g.weeks[0][6].date).toBe("2026-07-18");
+		expect(g.weeks[0].every((d) => d.inRange)).toBe(true);
+		expect(g.title).toBe("Jul 12 – 18, 2026");
+	});
+
+	test("places an event on its Central day within the week", () => {
+		const g = buildWeekGrid(
+			[ev({ whenISO: "2026-07-16T00:19:52.758Z" })],
+			"2026-07-16",
+			"2026-07-16",
+		);
+		const day = g.weeks[0].find((d) => d.date === "2026-07-15")!;
+		expect(day.events.length).toBe(1);
 	});
 });

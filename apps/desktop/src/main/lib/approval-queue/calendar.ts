@@ -135,3 +135,36 @@ export function buildMonthGrid(
 		weeks,
 	};
 }
+
+const MON_SHORT = [
+	"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+	"Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+export function buildWeekGrid(
+	events: CalEvent[],
+	anchor: string,
+	today: string,
+	tz: string = TZ,
+): CalGrid {
+	const byDay = bucket(events, tz);
+	const start = addDays(anchor, -weekday(anchor)); // Sunday of the anchor's week
+	const week: CalDay[] = [];
+	let cursor = start;
+	for (let d = 0; d < 7; d += 1) {
+		week.push(makeDay(cursor, true, today, byDay));
+		cursor = addDays(cursor, 1);
+	}
+	const end = addDays(start, 6);
+	const sM = MON_SHORT[Number(start.slice(5, 7)) - 1];
+	const eM = MON_SHORT[Number(end.slice(5, 7)) - 1];
+	const sD = Number(start.slice(8, 10));
+	const eD = Number(end.slice(8, 10));
+	const year = end.slice(0, 4);
+	const title =
+		sM === eM
+			? `${sM} ${sD} – ${eD}, ${year}`
+			: `${sM} ${sD} – ${eM} ${eD}, ${year}`;
+
+	return { view: "week", anchor, title, weeks: [week] };
+}
