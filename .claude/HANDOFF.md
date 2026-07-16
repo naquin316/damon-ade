@@ -79,12 +79,19 @@ jobs, and the deferred RYA-177 cleanups.
 ## FIRST REAL PUBLISH happened (2026-07-15 ~7:19 PM CT)
 The yeti card (`2026-07-15-intake-engraved-yeti-tumbler-and-personalized-c.md`) was
 Ryan's first live ship. What it proved / taught:
-- **facebook + instagram + threads post via the REST API** — scheduled 3 posts
-  (Blotato schedule ids 2589380/2589381/2589419), all fired ~7:19 PM CT. The
-  facebook/pinterest target shape in `buildPostBody` is now partially proven (fb went
-  through; pinterest never did — see below). **VERIFY the posts actually rendered on
-  each account** (copy + the AF Grandma photo); if facebook looks wrong that's the one
-  to watch.
+- **facebook + instagram + threads posted successfully via the REST API** — all 3
+  confirmed `status: "published"` (checked via `GET /v2/posts/:id`). Live URLs:
+  facebook.com/100587251684586_1545743284230841 · instagram.com/p/Da1Vp5YlY7w ·
+  threads.com/@handlanedesigns/post/Da1Vp3-lrqE. **Facebook's target shape is now
+  PROVEN** (pageId on `target` works). URLs saved on the note as `published_urls`.
+- **NEAR-MISS: don't invent note statuses.** I briefly set `status: published` — which
+  the drain does NOT recognize as terminal, and with `approved: true` still on the note
+  the next tick would have DOUBLE-POSTED. A fired note must stay a recognized terminal
+  status (`scheduled` / `needs-review` / `skipped`); the note is now `scheduled` +
+  `approved: false` → classify returns `untouched`. FOLLOW-UP: teach the drain a real
+  post-publish step — poll `GET /v2/posts/:id` (returns `{status, publicUrl}`), then set
+  a recognized terminal status + capture the URL, instead of leaving fired notes as
+  `scheduled` forever.
 - **Pinterest is DISABLED until ~2026-07-29.** The first ship 422'd on pinterest: the
   HLD account is too new for 3rd-party API posting (Blotato wants ~2 weeks of manual
   warmup, 1 pin/day ramping up, or shadowban risk). `targets.ts` `TARGET_DEFAULTS.
