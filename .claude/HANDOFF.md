@@ -87,11 +87,13 @@ Ryan's first live ship. What it proved / taught:
 - **NEAR-MISS: don't invent note statuses.** I briefly set `status: published` — which
   the drain does NOT recognize as terminal, and with `approved: true` still on the note
   the next tick would have DOUBLE-POSTED. A fired note must stay a recognized terminal
-  status (`scheduled` / `needs-review` / `skipped`); the note is now `scheduled` +
-  `approved: false` → classify returns `untouched`. FOLLOW-UP: teach the drain a real
-  post-publish step — poll `GET /v2/posts/:id` (returns `{status, publicUrl}`), then set
-  a recognized terminal status + capture the URL, instead of leaving fired notes as
-  `scheduled` forever.
+  status (`scheduled` / `needs-review` / `skipped`). FIXED (`b2e86c4`): the drain now has
+  a real post-publish step — a `scheduled` note past its time gets its post ids polled
+  via `GET /v2/posts/:id`; all `published` → terminal `published` status + `published_urls`
+  + a 🎉 Telegram with the links; any `failed` → needs-review; in-flight → left scheduled.
+  `published` is a recognized MACHINE status now (inert, can't re-send). Proven live on
+  the yeti note (scheduled → published, 3 URLs captured). Viewer shows a green
+  "Published ✓ — live" card + a "Live" filter.
 - **Pinterest is DISABLED until ~2026-07-29.** The first ship 422'd on pinterest: the
   HLD account is too new for 3rd-party API posting (Blotato wants ~2 weeks of manual
   warmup, 1 pin/day ramping up, or shadowban risk). `targets.ts` `TARGET_DEFAULTS.
@@ -109,18 +111,16 @@ Ryan's first live ship. What it proved / taught:
   300s) and `com.ryan.intake-telegram` (KeepAlive, on `@HLD_intake_bot`) are installed
   in `~/Library/LaunchAgents/` and running. `com.ryan.drain-queue` still runs `--ship`
   every 15 min. Logs: `~/.ade/{intake-folder,intake-telegram,drain-queue}.log`.
-1. **VERIFY the first live facebook + pinterest ship** (`cbbc968` wired the targets but
-   nothing has EVER published, so the REST target shape for those two is unproven).
-   `targets.ts` `TARGET_DEFAULTS` now injects HLD's facebook page `100587251684586` +
-   pinterest board `718535384238926608` (Ryan-supplied 2026-07-15), so a
-   facebook/pinterest note previews `ready`. When Ryan approves one to those platforms,
-   the drain schedules ~10 min out — watch that first post land in Blotato's scheduler;
-   if facebook/pinterest 4xx, the exact HTTP error shows up on the note as
-   `needs-review` and the target body shape in `blotato.ts` `buildPostBody` needs a
-   tweak (boardId/pageId currently sit on `target`). instagram/threads are already safe.
-2. **(Deferred, RYA-177)** rotate the leaked Blotato key (still live in an iCloud
-   transcript); make the drain skip the Blotato `listAccounts` call when 0 approved
-   (saves ~96 idle API calls/day).
+The pipeline is fully built AND proven with a real publish. Nothing is required; the
+open items are optional:
+1. **Re-enable Pinterest ~2026-07-29** — after warming the account manually (1 pin/day),
+   delete the `unavailable.pinterest` line in `targets.ts`. Its board id + boardId
+   wiring are already in place. (facebook/instagram/threads are PROVEN live.)
+2. **RYA-177 is CANCELLED** (2026-07-15) — Ryan declined rotating the leaked Blotato key.
+   Do NOT re-file it. (The separate "exporter should redact command-line secrets"
+   prevention idea from that issue is unaddressed, if it ever matters.)
+3. *(nice-to-have)* make the drain skip its `listAccounts` call when 0 notes are
+   approved AND no scheduled note needs confirming — saves idle API calls.
 
 ## Decisions (with WHY — don't re-litigate)
 - **The vault is the bus.** Approving = write `approved: true` (+ picker's `platform`/
