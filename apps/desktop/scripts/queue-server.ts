@@ -27,6 +27,12 @@ import {
 	listAccounts,
 	uploadMedia,
 } from "../src/main/lib/approval-queue/blotato";
+import {
+	buildMonthGrid,
+	buildWeekGrid,
+	type CalEvent,
+	centralDate,
+} from "../src/main/lib/approval-queue/calendar";
 import { createDraft } from "../src/main/lib/approval-queue/intake";
 import {
 	QUEUE_DIR,
@@ -346,6 +352,45 @@ const server = Bun.serve({
 					sweptAt: new Date().toISOString(),
 				},
 			});
+		}
+
+		// Calendar model: scheduled + published notes bucketed into a month/week
+		// grid (Central time). Reuses buildCard so the calendar shows exactly what
+		// the grid does, then maps to the pure calendar lib.
+		if (url.pathname === "/api/calendar") {
+			const connected = await loadConnected();
+			const view = url.searchParams.get("view") === "week" ? "week" : "month";
+			const today =
+				centralDate(new Date().toISOString()) ?? "1970-01-01";
+			const anchor = /^\d{4}-\d{2}-\d{2}$/.test(
+				url.searchParams.get("anchor") ?? "",
+			)
+				? (url.searchParams.get("anchor") as string)
+				: today;
+
+			const events: CalEvent[] = listNotes()
+				.map((f) => buildCard(f, readFileSync(f, "utf8"), connected))
+				.filter(
+					(c) =>
+						(c.status === "scheduled" || c.status === "published") &&
+						!!c.scheduledTime,
+				)
+				.map((c) => ({
+					file: c.file,
+					slug: c.slug,
+					whenISO: c.scheduledTime as string,
+					kind: c.status === "published" ? "published" : "scheduled",
+					platforms: c.platforms,
+					media: c.media,
+					copy: c.copy,
+					urls: c.publishedUrls,
+				}));
+
+			const grid =
+				view === "week"
+					? buildWeekGrid(events, anchor, today)
+					: buildMonthGrid(events, anchor, today);
+			return Response.json(grid);
 		}
 
 		// Approve = tick the checkbox the drain reads AND commit the human's WHERE/WHEN
