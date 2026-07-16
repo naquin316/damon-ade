@@ -76,6 +76,21 @@ jobs, and the deferred RYA-177 cleanups.
   clobbered an earlier same-caption draft). `uniqueNotePath` appends `-2/-3/…`. All
   three doors share it via `realIntakeDeps.writeNote`.
 
+## RYA-200 CALENDAR SHIPPED (2026-07-16)
+A calendar view is live in the approvals viewer (Grid/Calendar toggle in the header).
+Built via subagent-driven-development from `docs/superpowers/plans/2026-07-16-social-posts-calendar.md`
+(6 code tasks; Task 7 drag-to-reschedule deferred by design). On `main` @ `2b8d882`, pushed.
+- **Pure tested lib** `apps/desktop/src/main/lib/approval-queue/calendar.ts` (`buildMonthGrid`,
+  `buildWeekGrid`, `centralDate`) — Central-time bucketing, 12 unit tests (145 suite total).
+- **`/api/calendar?view=month|week&anchor=YYYY-MM-DD`** in `queue-server.ts` — reuses `buildCard`.
+- **Client**: month + week grids, prev/next/Today nav, `scheduled` events open the existing edit
+  modal, `published` events show a popover with the live per-platform links. All inline vanilla
+  JS/CSS, reuses `openEdit`/`esc`/`fmtLocal`/`cardByFile`. Opus whole-branch review: READY TO MERGE.
+- Browser-verified end-to-end (toggle, month/week nav w/ no month-skip, today highlight, yeti
+  published on 7/15, published popover w/ fb/ig/threads links).
+- Follow-up available: **RYA-201** (Electron app live agent-activity streaming) is still open;
+  **Task 7 drag-to-reschedule** can be built on request (plan has the code).
+
 ## FIRST REAL PUBLISH happened (2026-07-15 ~7:19 PM CT)
 The yeti card (`2026-07-15-intake-engraved-yeti-tumbler-and-personalized-c.md`) was
 Ryan's first live ship. What it proved / taught:
