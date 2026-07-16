@@ -76,6 +76,27 @@ jobs, and the deferred RYA-177 cleanups.
   clobbered an earlier same-caption draft). `uniqueNotePath` appends `-2/-3/…`. All
   three doors share it via `realIntakeDeps.writeNote`.
 
+## FIRST REAL PUBLISH happened (2026-07-15 ~7:19 PM CT)
+The yeti card (`2026-07-15-intake-engraved-yeti-tumbler-and-personalized-c.md`) was
+Ryan's first live ship. What it proved / taught:
+- **facebook + instagram + threads post via the REST API** — scheduled 3 posts
+  (Blotato schedule ids 2589380/2589381/2589419), all fired ~7:19 PM CT. The
+  facebook/pinterest target shape in `buildPostBody` is now partially proven (fb went
+  through; pinterest never did — see below). **VERIFY the posts actually rendered on
+  each account** (copy + the AF Grandma photo); if facebook looks wrong that's the one
+  to watch.
+- **Pinterest is DISABLED until ~2026-07-29.** The first ship 422'd on pinterest: the
+  HLD account is too new for 3rd-party API posting (Blotato wants ~2 weeks of manual
+  warmup, 1 pin/day ramping up, or shadowban risk). `targets.ts` `TARGET_DEFAULTS.
+  unavailable.pinterest` now blocks any pinterest-targeting note BEFORE any send
+  (`platform-unavailable`), so it can't half-ship a multi-platform note again. RE-ENABLE
+  by deleting that one line in `targets.ts` once the account's been warmed up manually.
+- **The half-ship was handled correctly** — sequential send stopped at pinterest, note
+  parked at `needs-review` (never double-posted). Ryan chose keep-fb+ig + add-threads;
+  the threads post was created directly (one-off script, since the drain can't cleanly
+  re-ship one platform of a partial note) and the note repaired to `status: scheduled`
+  with all 3 ids + `platform: facebook + instagram + threads`.
+
 ## Next steps (operational, in order) — the build is done
 - **DONE — both intake launchd jobs are loaded.** `com.ryan.intake-folder` (every
   300s) and `com.ryan.intake-telegram` (KeepAlive, on `@HLD_intake_bot`) are installed
