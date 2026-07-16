@@ -701,15 +701,59 @@ const PAGE = /* html */ `<!doctype html>
     color:var(--ink);font-family:var(--sans);font-size:.85rem;padding:.4rem .5rem;color-scheme:dark}
   .when input[type=datetime-local]:disabled{opacity:.4}
   .modal .save{background:var(--ok);border-color:var(--ok);color:#08150f} .modal .save:disabled{opacity:.5;cursor:wait}
+  .viewtoggle{display:inline-flex;gap:.3rem;margin-left:.6rem}
+  .viewtoggle button{font-family:var(--sans);font-size:.78rem;color:var(--muted);background:transparent;
+    border:1px solid var(--border);border-radius:999px;padding:.2rem .7rem;cursor:pointer}
+  .viewtoggle button.on{color:var(--ink);border-color:var(--primary);background:rgba(74,144,226,.12)}
+  #calendar{max-width:1180px;margin:0 auto;padding:1.25rem;display:none}
+  #calendar.on{display:block}
+  .calbar{display:flex;align-items:center;gap:.6rem;margin-bottom:.8rem;flex-wrap:wrap}
+  .calbar .caltitle{font-size:1rem;font-weight:700;min-width:11rem}
+  .calbar button{font-family:var(--sans);font-size:.8rem;color:var(--ink);background:var(--card);
+    border:1px solid var(--border);border-radius:var(--r);padding:.3rem .6rem;cursor:pointer}
+  .calbar .spacer{flex:1}
+  .calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--border);
+    border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+  .caldow{background:var(--ground);color:var(--muted);font-family:var(--mono);font-size:.68rem;
+    text-align:center;padding:.35rem 0}
+  .calday{background:var(--card);min-height:6.5rem;padding:.3rem;display:flex;flex-direction:column;gap:.25rem}
+  .calday.out{background:#1e1e1e}
+  .calday .dnum{font-size:.72rem;color:var(--muted);font-family:var(--mono)}
+  .calday.out .dnum{opacity:.5}
+  .calday.today .dnum{color:var(--primary);font-weight:700}
+  .calweek .calday{min-height:12rem}
+  .calev{border-left:3px solid var(--muted);background:var(--ground);border-radius:.2rem;
+    padding:.2rem .35rem;font-size:.7rem;color:var(--ink);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .calev.scheduled{border-left-color:var(--primary)} .calev.published{border-left-color:var(--ok)}
+  .calev .evtime{font-family:var(--mono);color:var(--muted);margin-right:.3rem}
+  .calpop{position:fixed;z-index:30;background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+    padding:.7rem;max-width:280px;display:none;flex-direction:column;gap:.35rem;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  .calpop.on{display:flex}
+  .calpop .pcopy{font-family:var(--serif);font-size:.82rem;color:#e6e6e6;max-height:6rem;overflow:hidden}
+  .calpop a{font-size:.76rem;color:var(--muted);text-decoration:none} .calpop a:hover{color:var(--ink)}
 </style></head>
 <body>
 <header>
   <button class="newbtn" onclick="openIntake()">+ New post</button>
-  <h1>Approvals <span style="color:var(--muted);font-weight:400">· The Conn</span></h1>
+  <h1>Approvals <span style="color:var(--muted);font-weight:400">· The Conn</span>
+    <span class="viewtoggle"><button id="vt-grid" class="on" onclick="setViewMode('grid')">Grid</button><button id="vt-cal" onclick="setViewMode('calendar')">Calendar</button></span>
+  </h1>
   <div class="summary" id="summary">loading…</div>
   <div class="filters" id="filters"></div>
 </header>
 <main id="grid"><div class="empty">loading…</div></main>
+<section id="calendar">
+  <div class="calbar">
+    <button onclick="calNav(-1)">‹</button>
+    <button onclick="calToday()">Today</button>
+    <button onclick="calNav(1)">›</button>
+    <span class="caltitle" id="calTitle">…</span>
+    <span class="spacer"></span>
+    <span class="viewtoggle"><button id="cv-month" class="on" onclick="setCalView('month')">Month</button><button id="cv-week" onclick="setCalView('week')">Week</button></span>
+  </div>
+  <div id="calBody"></div>
+</section>
+<div class="calpop" id="calPop"></div>
 <footer>the vault is the bus · approving flips <span style="color:var(--ink)">approved: true</span> · the drain ships within 15 min</footer>
 
 <div class="overlay" id="overlay">
@@ -993,6 +1037,45 @@ async function submitEdit(){
   }catch(e){st.textContent='Failed: '+e.message;} finally{btn.disabled=false;}
 }
 
+// ── calendar view ──
+let viewMode="grid", calView="month", calAnchor=null;
+const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+function todayYMD(){return new Intl.DateTimeFormat("en-CA",{timeZone:"America/Chicago",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());}
+function setViewMode(m){
+  viewMode=m;
+  document.getElementById("vt-grid").classList.toggle("on",m==="grid");
+  document.getElementById("vt-cal").classList.toggle("on",m==="calendar");
+  document.getElementById("grid").style.display=m==="grid"?"":"none";
+  document.getElementById("filters").style.display=m==="grid"?"":"none";
+  document.getElementById("calendar").classList.toggle("on",m==="calendar");
+  if(m==="calendar"){ if(!calAnchor) calAnchor=todayYMD(); loadCalendar(); }
+}
+function setCalView(v){calView=v;document.getElementById("cv-month").classList.toggle("on",v==="month");document.getElementById("cv-week").classList.toggle("on",v==="week");loadCalendar();}
+function calToday(){calAnchor=todayYMD();loadCalendar();}
+function calNav(dir){
+  const d=new Date(calAnchor+"T12:00:00Z");
+  d.setUTCDate(d.getUTCDate()+dir*(calView==="week"?7:0));
+  if(calView==="month") d.setUTCMonth(d.getUTCMonth()+dir);
+  calAnchor=d.toISOString().slice(0,10);
+  loadCalendar();
+}
+async function loadCalendar(){
+  const r=await fetch("/api/calendar?view="+calView+"&anchor="+calAnchor);
+  renderCalendar(await r.json());
+}
+function renderCalendar(g){
+  document.getElementById("calTitle").textContent=g.title;
+  const body=document.getElementById("calBody");
+  const dow=DOW.map(d=>\`<div class="caldow">\${d}</div>\`).join("");
+  const cells=g.weeks.flat().map(day=>{
+    const evs=day.events.map(e=>{
+      const t=fmtLocal(e.whenISO).split(", ").pop();
+      return \`<div class="calev \${e.kind}" onclick="calEvClick(event,'\${esc(e.file)}','\${e.kind}')"><span class="evtime">\${esc(t)}</span>\${esc((e.platforms||[]).join("/"))}</div>\`;
+    }).join("");
+    return \`<div class="calday \${day.inRange?'':'out'} \${day.isToday?'today':''}"><div class="dnum">\${Number(day.date.slice(8,10))}</div>\${evs}</div>\`;
+  }).join("");
+  body.innerHTML=\`<div class="calgrid \${g.view==='week'?'calweek':''}">\${dow}\${cells}</div>\`;
+}
 function setFilter(k){filter=k;render(true);}
 async function load(){
   const r=await fetch('/api/queue');const d=await r.json();
