@@ -1054,9 +1054,12 @@ function setCalView(v){calView=v;document.getElementById("cv-month").classList.t
 function calToday(){calAnchor=todayYMD();loadCalendar();}
 function calNav(dir){
   const d=new Date(calAnchor+"T12:00:00Z");
-  d.setUTCDate(d.getUTCDate()+dir*(calView==="week"?7:0));
-  if(calView==="month") d.setUTCMonth(d.getUTCMonth()+dir);
-  calAnchor=d.toISOString().slice(0,10);
+  if(calView==="week"){
+    d.setUTCDate(d.getUTCDate()+dir*7);
+    calAnchor=d.toISOString().slice(0,10);
+  }else{
+    calAnchor=new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth()+dir, 1)).toISOString().slice(0,10);
+  }
   loadCalendar();
 }
 async function loadCalendar(){
