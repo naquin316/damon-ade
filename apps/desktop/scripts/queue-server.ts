@@ -1097,7 +1097,7 @@ function calEvClick(evt, file, kind){
 }
 document.addEventListener("click",e=>{const p=document.getElementById("calPop");if(p&&!p.contains(e.target))p.classList.remove("on");});
 // Refresh whichever view is active (grid always needs its data; calendar re-fetches).
-function refresh(){ load(); if(viewMode==="calendar") loadCalendar(); }
+async function refresh(){ await load(); if(viewMode==="calendar") await loadCalendar(); }
 function setFilter(k){filter=k;render(true);}
 async function load(){
   const r=await fetch('/api/queue');const d=await r.json();
