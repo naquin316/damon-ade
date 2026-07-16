@@ -923,7 +923,7 @@ function card(c){
 }
 async function act(kind,file){
   await fetch('/api/'+kind,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({file})});
-  await load();
+  await refresh();
 }
 
 // ── intake (+ New post) ──
@@ -1032,7 +1032,7 @@ async function submitEdit(){
     }
     const resp=await fetch('/api/edit',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});
     const d=await resp.json();
-    if(d.ok){closeEdit();await load();render(true);}
+    if(d.ok){closeEdit();await load();render(true);if(viewMode==="calendar")loadCalendar();}
     else{st.textContent='Failed: '+(d.error||'unknown');}
   }catch(e){st.textContent='Failed: '+e.message;} finally{btn.disabled=false;}
 }
@@ -1079,6 +1079,25 @@ function renderCalendar(g){
   }).join("");
   body.innerHTML=\`<div class="calgrid \${g.view==='week'?'calweek':''}">\${dow}\${cells}</div>\`;
 }
+// A scheduled event opens the existing edit modal; a published event shows a
+// read-only popover with its live links. Reuses openEdit + the card data already
+// loaded by load(), so there's one edit path, not two.
+function calEvClick(evt, file, kind){
+  evt.stopPropagation();
+  const pop=document.getElementById("calPop");
+  pop.classList.remove("on");
+  if(kind==="scheduled"){ openEdit(file); return; }
+  const c=cardByFile(file);
+  const urls=(c&&c.publishedUrls)||[];
+  const label=u=>{try{return new URL(u).hostname.replace(/^www\./,"").replace(/\.com$/,"");}catch{return u;}};
+  pop.innerHTML=\`<div class="pcopy">\${esc((c&&c.copy)||"")}</div>\`+urls.map(u=>\`<a href="\${esc(u)}" target="_blank" rel="noopener">\${esc(label(u))} ↗</a>\`).join("");
+  pop.style.left=Math.min(evt.clientX, window.innerWidth-300)+"px";
+  pop.style.top=Math.min(evt.clientY, window.innerHeight-200)+"px";
+  pop.classList.add("on");
+}
+document.addEventListener("click",e=>{const p=document.getElementById("calPop");if(p&&!p.contains(e.target))p.classList.remove("on");});
+// Refresh whichever view is active (grid always needs its data; calendar re-fetches).
+function refresh(){ load(); if(viewMode==="calendar") loadCalendar(); }
 function setFilter(k){filter=k;render(true);}
 async function load(){
   const r=await fetch('/api/queue');const d=await r.json();
