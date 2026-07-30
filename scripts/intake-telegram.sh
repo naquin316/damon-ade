@@ -12,13 +12,17 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUN="${BUN_BIN:-$HOME/.bun/bin/bun}"
 TMPL="$HOME/.secrets.op.zsh"
 CACHE="$HOME/.secrets.env"
-OP_TOKEN_FILE="$HOME/.config/op/dev-workstation.token"
+# 2026-07-30: `op inject` -> oprun, so this resolves via the self-hosted Connect
+# server (handlane-core) instead of the metered cloud API, which was hitting its
+# 1,000 req/24h cap daily. oprun handles token selection and cloud fallback itself.
+# --template is required: it substitutes refs in place and preserves the `export `
+# prefixes this cache is sourced for.
+OPRUN="$HOME/Code/.codehq/1password/oprun"
 
 if [ -z "${BLOTATO_API_KEY:-}" ]; then
-  if [ -f "$TMPL" ] && [ -r "$OP_TOKEN_FILE" ] && command -v op >/dev/null 2>&1; then
+  if [ -f "$TMPL" ] && [ -x "$OPRUN" ]; then
     if [ ! -f "$CACHE" ] || [ "$TMPL" -nt "$CACHE" ]; then
-      OP_SERVICE_ACCOUNT_TOKEN="$(<"$OP_TOKEN_FILE")" \
-        op inject -i "$TMPL" -o "$CACHE" -f >/dev/null 2>&1
+      "$OPRUN" inject --template -i "$TMPL" -o "$CACHE" >/dev/null 2>&1
     fi
   fi
   # shellcheck disable=SC1090

@@ -24,16 +24,19 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUN="${BUN_BIN:-$HOME/.bun/bin/bun}"
 TMPL="$HOME/.secrets.op.zsh"
 CACHE="$HOME/.secrets.env"
-OP_TOKEN_FILE="$HOME/.config/op/dev-workstation.token"
+OPRUN="$HOME/Code/.codehq/1password/oprun"
 
 # 1) already injected (e.g. you exported it yourself)
 if [ -z "${BLOTATO_API_KEY:-}" ]; then
   # 2) refresh the 0600 cache if it's missing or older than the template, exactly as
   #    ~/.zshrc does. Service-account auth => no prompt, works headless.
-  if [ -f "$TMPL" ] && [ -r "$OP_TOKEN_FILE" ] && command -v op >/dev/null 2>&1; then
+  #    2026-07-30: `op inject` -> oprun, resolving via the self-hosted Connect server
+  #    (handlane-core) instead of the metered cloud API, which was hitting its
+  #    1,000 req/24h cap daily. --template substitutes in place and preserves the
+  #    `export ` prefixes this shared cache is sourced for.
+  if [ -f "$TMPL" ] && [ -x "$OPRUN" ]; then
     if [ ! -f "$CACHE" ] || [ "$TMPL" -nt "$CACHE" ]; then
-      OP_SERVICE_ACCOUNT_TOKEN="$(<"$OP_TOKEN_FILE")" \
-        op inject -i "$TMPL" -o "$CACHE" -f >/dev/null 2>&1
+      "$OPRUN" inject --template -i "$TMPL" -o "$CACHE" >/dev/null 2>&1
     fi
   fi
   # 3) source the resolved cache
