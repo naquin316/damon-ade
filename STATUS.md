@@ -2,7 +2,7 @@
 name: damon-ade
 status: active
 phase: social-pipeline-live-calendar-shipped
-last_review: 2026-07-26
+last_review: 2026-07-31
 ---
 
 # damon-ade (RyanOS)
@@ -57,6 +57,7 @@ question that matters: **what stands between today and Ryan using this daily?***
 **Boundary with The Conn** (`~/Code/the-conn`) — the phone half of Phase 5 is ALREADY on The Conn's roadmap: *"v2 2am scene (HITL approvals)"* is the approval surface, *"v3 full conn (command palette)"* is goal submission. Do NOT build a second dashboard (that violates the 2026-07-12 LifeOS consolidation decision — every other OS-shaped system becomes a feed or retires). Split: **damon-ade owns the engine + the queue consumer; The Conn owns the phone surface; the vault is the bus** (both already treat it as source of truth, and the Approval Queue is just vault markdown — The Conn flips `status: approved`, RYA-166's watcher ships it). No new integration required.
 
 ## Done
+- **Social-pipeline scripts (`drain-queue.sh`, `intake-folder.sh`, `intake-telegram.sh`, `queue-server.sh`) switched from raw `op inject` to `oprun inject --template`** — resolves the shared `~/.secrets.env` cache via the self-hosted 1Password Connect server on handlane-core (unmetered) instead of the metered cloud API that was hitting its 1,000 req/24h cap and failing silently; drops the `op` CLI dependency entirely (2026-07-30, `4178a0e`).
 - STATUS.md baselined under version control — previously gitignored/disk-only per `.claude/HANDOFF.md`'s own "Don't commit `build-info.generated.ts`... STATUS.md is gitignored" gotcha, now tracked in git (2026-07-25, `59fcf52`). (inferred — commit message only, no stated reason for the policy change)
 - **RYA-200 Social Posts Calendar confirmed PUSHED to `main` @ `2b8d882` and browser-verified end-to-end** (toggle, month/week nav with no month-skip, today highlight, yeti published 7/15, published popover w/ fb/ig/threads links); Task 7 (drag-to-reschedule) deferred by design, buildable on request — supersedes the "NOT yet pushed" status below (2026-07-16, `.claude/HANDOFF.md` @ `e01a095`).
 - **RYA-200 Social Posts Calendar — Tasks 1–6 built, NOT yet pushed (2026-07-16, `87d8b7a..b759d65`, 7 commits, HEAD `b759d65`, 7 ahead of `origin/main`).** Pure `calendar.ts` model (`centralDate`, `buildMonthGrid`, `buildWeekGrid`, Central-time bucketing) + tests; `/api/calendar` endpoint reusing the existing `buildCard` pass; Grid/Calendar view toggle on the approvals viewer; a month-nav fix (no more month-skip on 29–31 anchors); inline edit on scheduled events (reuses the existing `/api/edit` modal) + a read-only links popover on published events. Task 7 (drag-to-reschedule) is explicitly optional/stretch in the plan and has no matching commit — appears not built. Plan: `docs/superpowers/plans/2026-07-16-social-posts-calendar.md`; Linear RYA-200. (inferred: build status read from commit messages matching the plan's task titles, not from a session note confirming live browser verification)
