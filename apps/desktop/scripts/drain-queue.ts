@@ -10,11 +10,14 @@
  * an in-app watcher only fires while RyanOS is open — exactly when Ryan does not
  * need it. Nothing in this file's import graph touches Electron.
  *
- *   op run -- bun apps/desktop/scripts/drain-queue.ts            # dry run (default)
- *   op run -- bun apps/desktop/scripts/drain-queue.ts --ship     # actually schedule
+ * Normally invoked through ../../../scripts/drain-queue.sh, which resolves the key:
+ *   ./scripts/drain-queue.sh            # dry run (default)
+ *   ./scripts/drain-queue.sh --ship     # actually schedule
  *
- * BLOTATO_API_KEY must be injected (op://Personal/Blotato/credential). It is never
- * read from a file and never logged.
+ * BLOTATO_API_KEY must be injected from `op://Code Secrets/shell-secrets/BLOTATO_API_KEY`.
+ * It is never read from a file and never logged. NOT op://Personal/... — the service
+ * account is scoped to `Code Secrets` only, so a Personal ref works in an interactive
+ * shell and then fails under launchd, which is where this actually runs.
  *
  * Design + invariants: docs/superpowers/specs/2026-07-14-approval-queue-consumer-design.md
  */
@@ -83,8 +86,10 @@ async function main(): Promise<void> {
 	if (!apiKey || apiKey.startsWith("op://")) {
 		console.error(
 			"BLOTATO_API_KEY is not set (or is an unresolved op:// reference).\n" +
-				"Run under 1Password so the key is injected at runtime, never stored in a file:\n" +
-				'  BLOTATO_API_KEY="op://Personal/Blotato/credential" op run -- bun apps/desktop/scripts/drain-queue.ts',
+				"Prefer ./scripts/drain-queue.sh, which resolves it. To inject it here directly:\n" +
+				'  BLOTATO_API_KEY="op://Code Secrets/shell-secrets/BLOTATO_API_KEY" \\\n' +
+				"    ~/Code/.codehq/1password/oprun -- bun apps/desktop/scripts/drain-queue.ts\n" +
+				"The ref must be in `Code Secrets` — the service account cannot read `Personal`.",
 		);
 		process.exitCode = 1;
 		return;

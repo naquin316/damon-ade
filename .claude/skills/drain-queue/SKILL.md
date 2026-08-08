@@ -56,8 +56,14 @@ Run from the repo root (`~/Code/damon-ade`). The wrapper resolves
 `BLOTATO_API_KEY` from `~/.secrets.zsh`; for a one-off you can inject it yourself:
 
 ```bash
-BLOTATO_API_KEY="op://Personal/Blotato/credential" op run -- ./scripts/drain-queue.sh
+BLOTATO_API_KEY="op://Code Secrets/shell-secrets/BLOTATO_API_KEY" \
+  ~/Code/.codehq/1password/oprun -- ./scripts/drain-queue.sh
 ```
+
+The vault matters: the service account is scoped to `Code Secrets` only, so an
+`op://Personal/...` ref resolves in your own shell and then fails silently under
+launchd. Use `oprun`, not `op run` — the raw CLI can hang on the desktop-app
+authorize prompt.
 
 ## Why REST and not the MCP
 
