@@ -1,6 +1,7 @@
 import type { BlotatoAccount, PostStatus } from "./blotato";
 import {
 	classify,
+	CONFIRM_DEADLINE_MS,
 	type PlannedPost,
 	readNote,
 	resolveScheduledTime,
@@ -133,6 +134,25 @@ export async function drain(
 							}),
 						);
 						report.needsReview.push({ file: path, since: null });
+						continue;
+					}
+					// Unconfirmable rather than in-flight: past the deadline these ids are
+					// never going to resolve (an unknown id reports `in-progress` forever
+					// — see CONFIRM_DEADLINE_MS), so stop polling and let a human look.
+					// Parking writes no post and cancels nothing.
+					if (now - firedAt > CONFIRM_DEADLINE_MS) {
+						const seen = statuses.map((s) => `${s.id}=${s.status}`).join(", ");
+						deps.write(
+							path,
+							withStatus(raw, "needs-review", {
+								needs_review_reason:
+									`drain-queue: still unconfirmed ${Math.round((now - firedAt) / 3_600_000)}h after its scheduled time — check Blotato whether these actually posted before re-approving. Last seen: ${seen}`.replace(
+										/\s+/g,
+										" ",
+									),
+							}),
+						);
+						report.needsReview.push({ file: path, since: note.scheduledTime });
 						continue;
 					}
 					// still in flight — fall through; classify returns untouched.

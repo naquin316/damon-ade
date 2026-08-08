@@ -304,6 +304,32 @@ describe("drain — post-publish confirmation (GET /posts/:id)", () => {
 		expect(h.fs["/q/a.md"]).toContain("status: scheduled");
 	});
 
+	// Blotato answers `200 {status:"in-progress"}` for ANY unknown post id — it never
+	// 404s — so a garbled `blotato_post_ids` is indistinguishable from a queued post
+	// and would poll forever: never published, never needs-review, never alerting.
+	// The deadline is the only thing that makes that state surface.
+	test("unconfirmable past the deadline -> needs-review, not scheduled forever", async () => {
+		// 7h before NOW, i.e. past CONFIRM_DEADLINE_MS (6h).
+		const h = pollHarness(scheduledNote("bogus-id", "2026-07-14T05:00:00Z"), {
+			"bogus-id": { status: "in-progress" },
+		});
+		const r = await drain(h.deps, { ship: true });
+		expect(r.published).toEqual([]);
+		expect(r.needsReview[0]?.file).toBe("/q/a.md");
+		expect(h.fs["/q/a.md"]).toContain("status: needs-review");
+		expect(h.fs["/q/a.md"]).toContain("bogus-id=in-progress");
+	});
+
+	test("an in-flight post INSIDE the deadline is still left alone", async () => {
+		// 1h past its time — a real post confirms in minutes, but the deadline must not
+		// be so tight that ordinary platform lag parks a healthy note.
+		const h = pollHarness(scheduledNote("p1"), { p1: { status: "in-progress" } });
+		const r = await drain(h.deps, { ship: true });
+		expect(r.needsReview).toEqual([]);
+		expect(h.effects).toEqual([]); // no write
+		expect(h.fs["/q/a.md"]).toContain("status: scheduled");
+	});
+
 	test("not yet fired (scheduled_time in the future) -> not polled", async () => {
 		let polled = false;
 		const fs: Record<string, string> = { "/q/a.md": scheduledNote("p1", "2026-07-14T18:00:00Z") };

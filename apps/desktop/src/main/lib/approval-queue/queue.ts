@@ -13,6 +13,25 @@ import type { BlotatoAccount } from "./blotato";
 export const STALE_CLAIM_MS = 20 * 60 * 1000;
 
 /**
+ * How long past its scheduled time a `scheduled` note may go unconfirmed before the
+ * drain stops waiting and parks it for a human.
+ *
+ * WHY THIS EXISTS: `GET /v2/posts/:id` returns `200 {"postSubmissionId":"<echo>",
+ * "status":"in-progress"}` for ANY unknown id — measured 2026-08-08 against
+ * `not-a-real-id-xyz` and `00000000`; it never 404s on a well-formed id. Since the
+ * poller treats every non-`published`/non-`failed` value as still-in-flight, a note
+ * carrying a wrong or garbled `blotato_post_ids` polls forever: never published,
+ * never needs-review, never alerting. Silent, and the only failure mode here that
+ * doesn't surface.
+ *
+ * Six hours is deliberately generous — a real post confirms in minutes, so this only
+ * fires on ids that are never going to resolve. Parking is a REPORT, not an action:
+ * it neither retries nor re-sends, so a Blotato outage costs a false flag and nothing
+ * else. That asymmetry is why the deadline is safe to have at all.
+ */
+export const CONFIRM_DEADLINE_MS = 6 * 60 * 60 * 1000;
+
+/**
  * Platforms that cannot carry a text-only post.
  *
  * Instagram was the only entry until a live check found the hole: a note reading
