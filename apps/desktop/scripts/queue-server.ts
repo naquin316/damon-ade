@@ -39,6 +39,7 @@ import {
 	realIntakeDeps,
 } from "../src/main/lib/approval-queue/intake-runner";
 import {
+	charLimits,
 	classify,
 	parseCrosspostable,
 	type QueueNote,
@@ -353,6 +354,11 @@ const server = Bun.serve({
 					oldestDays: oldest,
 					connected: connected ? [...connected.keys()].sort() : null,
 					sweptAt: new Date().toISOString(),
+					// The caps classify() actually enforces. Served rather than
+					// duplicated so an approval UI cannot show a number the gate
+					// disagrees with — on a control that decides what publishes,
+					// a drifted copy is worse than no display at all.
+					charLimits: charLimits(),
 				},
 			});
 		}

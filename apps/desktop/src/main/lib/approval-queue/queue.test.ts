@@ -312,6 +312,73 @@ describe("classify — a script is not a post", () => {
 	});
 });
 
+describe("classify — caption length caps", () => {
+	// Learned live: two notes 422'd on Threads AFTER facebook and instagram had
+	// already published. The cap is enforced before ANY send so the whole note
+	// blocks rather than half-shipping.
+	test("over the threads cap blocks the note", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "approved", platform: "threads" }, "x".repeat(501)),
+		);
+		const c = classify(n, NOW, CONNECTED);
+		expect(c.kind).toBe("blocked");
+		if (c.kind === "blocked") {
+			expect(c.reason).toBe("copy-too-long");
+			// The overage has to be in the message — "too long" alone is not actionable.
+			expect(c.detail).toContain("1 over");
+		}
+	});
+
+	test("exactly at the cap still ships", () => {
+		const n = readNote(
+			"a.md",
+			note({ status: "approved", platform: "threads" }, "x".repeat(500)),
+		);
+		expect(classify(n, NOW, CONNECTED).kind).toBe("shippable");
+	});
+
+	test("a multi-platform note blocks as a WHOLE when only one target is over", () => {
+		// facebook (63206) and instagram (2200) both have room; threads does not.
+		// This is the real incident: without the whole-note block, the roomy
+		// platforms publish and the tight one 422s.
+		const conn = new Map<string, BlotatoAccount>([
+			["facebook", { id: "1", platform: "facebook" }],
+			["threads", { id: "2", platform: "threads" }],
+		]);
+		const n = readNote(
+			"a.md",
+			note(
+				{
+					status: "approved",
+					platform: "facebook + threads",
+					pageId: "123",
+				},
+				"x".repeat(600),
+			),
+		);
+		const c = classify(n, NOW, conn);
+		expect(c.kind).toBe("blocked");
+		if (c.kind === "blocked") expect(c.reason).toBe("copy-too-long");
+	});
+
+	test("a platform with no verified cap is not gated", () => {
+		// tiktok is deliberately absent from CHAR_LIMITS — a guessed cap that is too
+		// low silently refuses valid copy, which is worse than the 422 it prevents.
+		const conn = new Map<string, BlotatoAccount>([
+			["tiktok", { id: "1", platform: "tiktok" }],
+		]);
+		const n = readNote(
+			"a.md",
+			note(
+				{ status: "approved", platform: "tiktok", media: "https://x/y.jpg" },
+				"x".repeat(9000),
+			),
+		);
+		expect(classify(n, NOW, conn).kind).toBe("shippable");
+	});
+});
+
 describe("classify — media-or-nothing platforms", () => {
 	// tiktok/youtube/pinterest cannot carry a text-only post. Before this, a note
 	// reading `platform: tiktok` with no media would have posted its TEXT to TikTok.

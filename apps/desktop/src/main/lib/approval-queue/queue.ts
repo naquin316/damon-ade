@@ -47,6 +47,35 @@ export const CONFIRM_DEADLINE_MS = 6 * 60 * 60 * 1000;
  */
 const MEDIA_REQUIRED = new Set(["instagram", "tiktok", "youtube", "pinterest"]);
 
+/**
+ * Per-platform caption length caps.
+ *
+ * Learned live, twice: on 2026-08-08 two approved HLD notes 422'd on Threads
+ * (`Text length exceeds the character limit of 500 characters for platform
+ * 'threads'`) AFTER facebook and instagram had already gone out — leaving
+ * half-published posts parked at needs-review with 2/3 sent. Nothing anywhere in
+ * the pipeline checked length, so the only way to discover a cap was to breach
+ * it in public. Checked here, before any send, the whole note blocks and nothing
+ * is half-shipped.
+ *
+ * ONLY caps that are certain are listed. A cap that is too LOW is worse than no
+ * cap at all: it silently refuses to publish valid copy, whereas the failure it
+ * prevents is one the pipeline already survives (park at needs-review, nothing
+ * lost). So tiktok, youtube, pinterest and x are deliberately ABSENT rather than
+ * guessed — tiktok's caption limit has moved, and x counts a URL as a fixed 23
+ * characters regardless of its real length, so a raw `.length` would over-count
+ * and block valid posts. Add one only with a verified number.
+ */
+const CHAR_LIMITS: Record<string, number> = {
+	threads: 500,
+	instagram: 2200,
+	facebook: 63206,
+};
+
+/** Read-only view, so the approval UI can show the same numbers this enforces
+ *  instead of keeping its own copy that can drift from the gate. */
+export const charLimits = (): Record<string, number> => ({ ...CHAR_LIMITS });
+
 /** Facebook's API requires a page id on `target`. */
 const PAGE_ID_REQUIRED = new Set(["facebook"]);
 
@@ -134,7 +163,8 @@ export type BlockedReason =
 	| "no-board-id"
 	| "platform-unavailable"
 	| "unknown-status"
-	| "not-a-post";
+	| "not-a-post"
+	| "copy-too-long";
 
 /**
  * `type:` values that are DELIVERABLES FOR A HUMAN, not publishable copy.
@@ -440,6 +470,19 @@ export function classify(
 				kind: "blocked",
 				reason: "no-media",
 				detail: `${platform} requires a media URL`,
+			};
+		}
+
+		// Length is checked for EVERY target before any of them are sent, so an
+		// over-long note fails as a whole rather than publishing to the platforms
+		// with roomier caps and then 422ing on the tight one. `detail` carries the
+		// overage because "too long" without a number is not actionable.
+		const cap = CHAR_LIMITS[platform];
+		if (cap !== undefined && note.copy.length > cap) {
+			return {
+				kind: "blocked",
+				reason: "copy-too-long",
+				detail: `${platform} allows ${cap} characters — this copy is ${note.copy.length}, ${note.copy.length - cap} over`,
 			};
 		}
 		// Facebook page target: the note's own pageId wins, then the injected default
