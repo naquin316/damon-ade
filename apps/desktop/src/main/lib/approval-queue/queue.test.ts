@@ -5,6 +5,7 @@ import {
 	extractCopy,
 	parseCrosspostable,
 	parsePlatforms,
+	type QueueNote,
 	readNote,
 	replaceCopySection,
 	resolveScheduledTime,

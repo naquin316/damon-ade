@@ -90,6 +90,8 @@ interface CardView {
 		| "shipping"
 		| "unknown";
 	verdict: string;
+	/** The drain's `needs_review_reason`, so a parked card says WHY, not just that. */
+	reviewReason: string | null;
 	escalation: string | null;
 	scheduledTime: string | null;
 	postIds: string[];
@@ -237,6 +239,7 @@ function buildCard(
 		state,
 		verdict,
 		escalation,
+		reviewReason: fmField(raw, "needs_review_reason") ?? null,
 		scheduledTime,
 		postIds,
 		publishedUrls: (fmField(raw, "published_urls") ?? "")
@@ -435,12 +438,28 @@ const server = Bun.serve({
 				);
 
 			const raw = readFileSync(path, "utf8");
-			// Skip = mark it skipped. Re-queue = rescue an orphaned "scheduled" note back
-			// to a fresh pending card.
+			// Skip = mark it skipped. Re-queue = rescue an orphaned "scheduled" note, or
+			// a parked needs-review one, back to a fresh pending card.
+			//
+			// The stale-field strip matters: a re-queued note that keeps
+			// `needs_review_reason` shows last run's failure on a card that is now
+			// pending and fine, and `blotato_post_ids` from a half-finished send would
+			// be polled against if it ever reached `scheduled` again. "Fresh pending"
+			// has to mean fresh.
+			const cleaned =
+				url.pathname === "/api/requeue"
+					? raw.replace(/^(needs_review_reason|blotato_post_ids):.*$\n?/gm, "")
+					: raw;
 			const next =
 				url.pathname === "/api/requeue"
-					? upsertFrontmatter(raw, { status: "pending", approved: "false" })
-					: upsertFrontmatter(raw, { status: "skipped", approved: "false" });
+					? upsertFrontmatter(cleaned, {
+							status: "pending",
+							approved: "false",
+						})
+					: upsertFrontmatter(cleaned, {
+							status: "skipped",
+							approved: "false",
+						});
 			writeFileSync(path, next, "utf8");
 			return Response.json({ ok: true });
 		}
@@ -912,6 +931,7 @@ function card(c){
         \${c.orphaned?\`<div class="orphan"><div class="orphan-msg">⚠️ \${esc(c.verdict)}</div><button class="approve" onclick="act('requeue','\${esc(c.file)}')">Re-queue</button></div>\`:
           c.state==="published"?\`<div class="publinks"><div class="live">\${esc(c.verdict)}</div>\${(c.publishedUrls||[]).map(u=>\`<a href="\${esc(u)}" target="_blank" rel="noopener">\${esc(label(u))} ↗</a>\`).join("")}</div>\`:
           c.state==="scheduled"?\`<div class="sched"><div class="sched-when">\${esc(c.verdict)}</div>\${c.postIds.length?\`<a href="https://my.blotato.com/scheduler" target="_blank" rel="noopener">View / reschedule on Blotato ↗</a>\`:""}</div>\`:
+          c.state==="needs-review"?\`<div class="orphan"><div class="orphan-msg">⚠️ \${esc(c.reviewReason||c.verdict)}</div><button class="approve" onclick="act('requeue','\${esc(c.file)}')">Re-queue</button></div>\`:
           terminal?\`<div class="terminal-tag">\${esc(c.verdict)}</div>\`:
           (c.approved===true?\`<div class="approved-tag">✓ Approved — posts to \${esc(c.platforms.join(", "))} \${c.scheduledTime?'at '+esc(fmtLocal(c.scheduledTime)):'within 15 min'}</div><button class="skip" onclick="act('skip','\${esc(c.file)}')" style="grid-column:1/-1">Undo (skip)</button>\`:
           \`<button class="approve" \${disabled?'disabled':''} onclick="openApprove('\${esc(c.file)}')">Approve</button>
