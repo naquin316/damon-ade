@@ -22,11 +22,22 @@ export const TARGET_DEFAULTS: TargetDefaults = {
 	// re-enabled below)
 	pinterestBoardId: "718535384238926608",
 	unavailable: {
-		// Pinterest 422'd on the first real ship (2026-07-15): the HLD Pinterest account
-		// is too new for 3rd-party API posting. Blotato requires ~2 weeks of manual
-		// warmup (1 pin/day, ramping up) or it risks a shadowban. RE-ENABLE ~2026-07-29
-		// by deleting this line once the account has been posting manually.
+		// Pinterest 422'd on the first real ship (2026-07-15), and STILL 422s —
+		// re-tested live 2026-08-08 by scheduling a probe pin 30 days out (it was
+		// rejected at create time, so nothing had to be cleaned up).
+		//
+		// THE GATE IS NOT A DATE. The original comment said "RE-ENABLE ~2026-07-29",
+		// which came and went with nothing changed on the account, because the clock
+		// was never the condition. Blotato's own 422 body spells out the real one:
+		//   1. post ~1 pin/day MANUALLY, ramping to 2-3/day, for at least 2 weeks
+		//   2. reach 100+ monthly views on the account
+		//   3. RECONNECT the Pinterest account in Blotato  <- the step nobody wrote down
+		// Skipping the warmup risks a Pinterest shadowban, which is why this blocks
+		// before any send rather than letting a multi-platform note half-ship.
+		//
+		// To re-enable: re-run the probe (schedule a pin, expect 2xx not 422). Delete
+		// this entry only after it passes — not because time has passed.
 		pinterest:
-			"Pinterest is too new for API posting — warm it up manually (~2 weeks, until ~2026-07-29) before re-enabling. Remove pinterest from this note to ship the rest.",
+			"Pinterest still rejects 3rd-party API posting (verified 2026-08-08): the account needs manual warmup (~1 pin/day for 2 weeks), 100+ monthly views, and then a RECONNECT in Blotato. Remove pinterest from this note to ship the rest.",
 	},
 };
