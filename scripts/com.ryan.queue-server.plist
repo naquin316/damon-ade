@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Approvals viewer — "Approvals · The Conn" — kept alive at http://localhost:4319.
+
+  WHY THIS EXISTS: every other piece of the social pipeline was already a
+  LaunchAgent — the drain ships every 15 min, both intake doors run on timers — but
+  the one surface a HUMAN needs was on-demand only. It ran when someone remembered
+  to run it. On 2026-08-08 five HLD posts sat "Ready — approve to ship" for 31 days
+  with the approval page not running. An approval gate you have to boot is a gate
+  that stays shut.
+
+  UNLIKE the other three plists here, this is a long-running server, so:
+    RunAtLoad true   — up as soon as you log in
+    KeepAlive true   — relaunched if it dies (launchd throttles restarts to 10s)
+    no StartInterval — it is not a timer job
+
+  Binds 127.0.0.1:4319 only. Port checked free 2026-08-08 (`lsof -nP -iTCP:4319`);
+  localhost-only matters here — a wildcard bind would expose the vault's contents
+  to the LAN, and Node/Bun default to dual-stack `*` if you let them.
+
+  Runs via queue-server.sh, which resolves BLOTATO_API_KEY through the same
+  1Password service-account pipeline the drain uses. The key is OPTIONAL: without
+  it the cards still render, they just show "unknown (no Blotato)" instead of
+  ready/blocked.
+
+  It only ever writes the `approved`/`status` frontmatter the drain already reads —
+  the vault stays the bus, and this page cannot publish anything by itself.
+
+  Install:
+    cp scripts/com.ryan.queue-server.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.ryan.queue-server.plist
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.ryan.queue-server.plist
+  Watch:
+    tail -f ~/.ade/queue-server.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ryan.queue-server</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/ryannaquin/Code/damon-ade/scripts/queue-server.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/ryannaquin/Code/damon-ade</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/ryannaquin/.ade/queue-server.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ryannaquin/.ade/queue-server.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/ryannaquin/.bun/bin:/Users/ryannaquin/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
