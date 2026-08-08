@@ -1,7 +1,9 @@
 import type { BlotatoAccount, PostStatus } from "./blotato";
 import {
+	ageDaysFromFile,
 	classify,
 	CONFIRM_DEADLINE_MS,
+	isWaitingOnApproval,
 	type PlannedPost,
 	readNote,
 	resolveScheduledTime,
@@ -44,6 +46,9 @@ export interface DrainReport {
 	/** Confirmed live this run — a scheduled note whose posts all report `published`. */
 	published: { file: string; urls: string[] }[];
 	blocked: { file: string; reason: string; detail?: string }[];
+	/** Ready to go and waiting on a human. NOT a failure — the queue is supposed to
+	 *  hold these. It's their AGE that matters, which is why the days come along. */
+	waiting: { file: string; ageDays: number | null }[];
 	needsReview: { file: string; since: string | null }[];
 	claimed: string[];
 	untouched: { file: string; status: string }[];
@@ -65,6 +70,7 @@ export async function drain(
 		shipped: [],
 		published: [],
 		blocked: [],
+		waiting: [],
 		needsReview: [],
 		claimed: [],
 		untouched: [],
@@ -157,6 +163,18 @@ export async function drain(
 					}
 					// still in flight — fall through; classify returns untouched.
 				}
+			}
+
+			// Independent of the switch below: a pending-but-ready note classifies as
+			// `untouched` (the gate short-circuits), so it would otherwise be invisible
+			// to every report. Age is what turns it into a signal.
+			if (
+				isWaitingOnApproval(note, now, deps.connected, deps.targetDefaults)
+			) {
+				report.waiting.push({
+					file: path,
+					ageDays: ageDaysFromFile(path, now),
+				});
 			}
 
 			const c = classify(note, now, deps.connected, deps.targetDefaults);
@@ -318,6 +336,16 @@ export function formatReport(
 	for (const b of report.blocked) {
 		L.push(
 			`                   ${base(b.file)}  (${b.reason}${b.detail ? `: ${b.detail}` : ""})`,
+		);
+	}
+
+	if (report.waiting.length) {
+		const oldest = report.waiting.reduce(
+			(m, w) => Math.max(m, w.ageDays ?? 0),
+			0,
+		);
+		L.push(
+			`  waiting on you ${n(report.waiting.length)}  (ready to ship, oldest ${oldest}d)`,
 		);
 	}
 

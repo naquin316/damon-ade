@@ -45,9 +45,19 @@ function blockedKey(b: { file: string; reason: string }): string {
  * It's returned PRUNED to only the blocks still present this run, so a note that
  * gets fixed and later re-blocks the same way can notify again.
  */
+/**
+ * How long a ready-to-ship post may wait on a human before the drain says something.
+ *
+ * 3 days, not 1: approving on your own schedule is the whole point of the queue, and a
+ * nudge that fires the morning after you queue something is noise you learn to swipe
+ * away. It only has to beat the failure it exists for, which was 31 days of silence.
+ */
+export const NUDGE_AFTER_DAYS = 3;
+
 export function buildMessages(
 	report: DrainReport,
 	seenBlocked: ReadonlySet<string> = new Set(),
+	now: number = Date.now(),
 ): { messages: string[]; seenBlocked: Set<string> } {
 	const messages: string[] = [];
 
@@ -97,6 +107,47 @@ export function buildMessages(
 		}
 	}
 
+	// Ready-but-unapproved. The ONLY failure mode this pipeline had left: everything
+	// else here corresponds to something going wrong, while this is the queue working
+	// exactly as designed and quietly going nowhere. Five HLD posts sat "Ready —
+	// approve to ship" for 31 days and nothing anywhere said a word, because a note
+	// waiting on a human isn't an error at any layer.
+	//
+	// Deliberately AGE-gated, not count-gated: a full queue is healthy the day it's
+	// filled. Only a queue nobody has touched in NUDGE_AFTER_DAYS is a problem.
+	//
+	// Dedup is once per CALENDAR DAY, via a `nudge:<date>` marker parked in the same
+	// seen-set the blocked alerts use. That set is rebuilt from live blocks each run,
+	// so the marker has to be carried forward explicitly — and only today's is, which
+	// prunes yesterday's for free.
+	const stale = report.waiting.filter(
+		(w) => (w.ageDays ?? 0) >= NUDGE_AFTER_DAYS,
+	);
+	if (stale.length) {
+		const today = new Date(now).toISOString().slice(0, 10);
+		const key = `nudge:${today}`;
+		nextSeen.add(key);
+		if (!seenBlocked.has(key)) {
+			const oldest = stale.reduce((m, w) => Math.max(m, w.ageDays ?? 0), 0);
+			const names = stale
+				.slice(0, 5)
+				.map((w) => `· ${base(w.file)} (${w.ageDays}d)`)
+				.join("\n");
+			const more = stale.length > 5 ? `\n· +${stale.length - 5} more` : "";
+			messages.push(
+				`⏳ ${stale.length} post${stale.length === 1 ? "" : "s"} ready and waiting on you` +
+					`\nOldest is ${oldest} days old. Nothing ships until you approve.` +
+					`\n${names}${more}` +
+					`\n\nhttp://localhost:4319`,
+			);
+		}
+	} else {
+		// Nothing stale today, but keep an existing marker so clearing the queue and
+		// re-filling it can't produce two nudges in one day.
+		const today = new Date(now).toISOString().slice(0, 10);
+		if (seenBlocked.has(`nudge:${today}`)) nextSeen.add(`nudge:${today}`);
+	}
+
 	return { messages, seenBlocked: nextSeen };
 }
 
@@ -108,8 +159,9 @@ export async function notify(
 	report: DrainReport,
 	deps: NotifyDeps,
 	seenBlocked: ReadonlySet<string> = new Set(),
+	now: number = Date.now(),
 ): Promise<{ sent: number; seenBlocked: Set<string> }> {
-	const { messages, seenBlocked: next } = buildMessages(report, seenBlocked);
+	const { messages, seenBlocked: next } = buildMessages(report, seenBlocked, now);
 	let sent = 0;
 	for (const m of messages) {
 		try {

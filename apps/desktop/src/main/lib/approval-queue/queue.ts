@@ -554,3 +554,37 @@ export function withStatus(
 ): string {
 	return upsertFrontmatter(raw, { status, ...extra });
 }
+
+/**
+ * Would this note ship if a human approved it right now?
+ *
+ * `classify` short-circuits at the approval gate, so a pending note always returns
+ * `untouched` and you learn nothing about whether it's actually publishable. This
+ * previews it AS IF approved — the same trick the viewer uses to print
+ * "Ready — approve to ship" on a pending card — so the drain and the viewer answer
+ * the question identically instead of each carrying its own copy of the rules.
+ *
+ * Deliberately excludes `skipped`: that's a human saying no, and nagging about it
+ * would train Ryan to ignore the nudge. Only notes genuinely waiting on a decision.
+ */
+export function isWaitingOnApproval(
+	note: QueueNote,
+	now: number,
+	connected: Map<string, BlotatoAccount>,
+	targetDefaults: TargetDefaults = {},
+): boolean {
+	if (note.approved === true || note.status === "approved") return false;
+	if (note.status !== "pending" && note.status !== "") return false;
+	const preview: QueueNote = { ...note, status: "approved", approved: true };
+	return classify(preview, now, connected, targetDefaults).kind === "shippable";
+}
+
+/** Days since the `YYYY-MM-DD` prefix on a queue note's filename, or null. */
+export function ageDaysFromFile(file: string, now: number): number | null {
+	const slug = file.split("/").pop() ?? file;
+	const m = slug.match(/^(\d{4})-(\d{2})-(\d{2})/);
+	if (!m) return null;
+	const then = Date.parse(`${m[1]}-${m[2]}-${m[3]}T12:00:00Z`);
+	if (!Number.isFinite(then)) return null;
+	return Math.max(0, Math.floor((now - then) / 86_400_000));
+}

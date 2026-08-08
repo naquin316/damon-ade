@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { buildMessages, notify, telegramNotifier } from "./notify";
+import {
+	buildMessages,
+	notify,
+	NUDGE_AFTER_DAYS,
+	telegramNotifier,
+} from "./notify";
 import type { DrainReport } from "./ship";
 
 function report(over: Partial<DrainReport> = {}): DrainReport {
@@ -8,6 +13,7 @@ function report(over: Partial<DrainReport> = {}): DrainReport {
 		shipped: [],
 		published: [],
 		blocked: [],
+		waiting: [],
 		needsReview: [],
 		claimed: [],
 		untouched: [],
@@ -183,5 +189,86 @@ describe("telegramNotifier", () => {
 			fetch: fetchFn,
 		});
 		await n.send("hello"); // must not throw
+	});
+});
+
+describe("buildMessages — ready-and-waiting nudge", () => {
+	const NOW = Date.parse("2026-08-08T12:00:00Z");
+	const w = (file: string, ageDays: number | null) => ({ file, ageDays });
+
+	test("nudges once when a ready post is older than the threshold", () => {
+		const { messages } = buildMessages(
+			report({ waiting: [w("/q/a.md", 31)] }),
+			new Set(),
+			NOW,
+		);
+		expect(messages).toHaveLength(1);
+		expect(messages[0]).toContain("1 post ready and waiting on you");
+		expect(messages[0]).toContain("31 days old");
+		expect(messages[0]).toContain("http://localhost:4319");
+	});
+
+	test("stays silent below the threshold — a fresh queue is healthy", () => {
+		const { messages } = buildMessages(
+			report({ waiting: [w("/q/a.md", NUDGE_AFTER_DAYS - 1)] }),
+			new Set(),
+			NOW,
+		);
+		expect(messages).toEqual([]);
+	});
+
+	test("does not nudge twice in the same day", () => {
+		const first = buildMessages(
+			report({ waiting: [w("/q/a.md", 31)] }),
+			new Set(),
+			NOW,
+		);
+		expect(first.messages).toHaveLength(1);
+		// Second tick, 15 minutes later, carrying the returned marker forward.
+		const second = buildMessages(
+			report({ waiting: [w("/q/a.md", 31)] }),
+			first.seenBlocked,
+			NOW + 15 * 60 * 1000,
+		);
+		expect(second.messages).toEqual([]);
+	});
+
+	test("re-arms the next day", () => {
+		const day1 = buildMessages(
+			report({ waiting: [w("/q/a.md", 31)] }),
+			new Set(),
+			NOW,
+		);
+		const day2 = buildMessages(
+			report({ waiting: [w("/q/a.md", 32)] }),
+			day1.seenBlocked,
+			NOW + 24 * 60 * 60 * 1000,
+		);
+		expect(day2.messages).toHaveLength(1);
+		// and yesterday's marker is pruned rather than accumulating forever
+		expect([...day2.seenBlocked].filter((k) => k.startsWith("nudge:"))).toEqual([
+			"nudge:2026-08-09",
+		]);
+	});
+
+	test("counts and truncates a long list, plural correct", () => {
+		const many = Array.from({ length: 7 }, (_, i) => w(`/q/n${i}.md`, 10 + i));
+		const { messages } = buildMessages(
+			report({ waiting: many }),
+			new Set(),
+			NOW,
+		);
+		expect(messages[0]).toContain("7 posts ready and waiting on you");
+		expect(messages[0]).toContain("Oldest is 16 days old");
+		expect(messages[0]).toContain("+2 more");
+	});
+
+	test("a note with no parseable date never nudges on its own", () => {
+		const { messages } = buildMessages(
+			report({ waiting: [w("/q/undated.md", null)] }),
+			new Set(),
+			NOW,
+		);
+		expect(messages).toEqual([]);
 	});
 });
