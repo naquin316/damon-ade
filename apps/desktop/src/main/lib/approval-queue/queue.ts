@@ -473,9 +473,25 @@ export function classify(
 
 		posts.push({
 			platform,
-			// The note's explicit accountId wins — it pins the exact account a human
-			// reviewed. Fall back to the platform's connected account.
-			accountId: note.accountId ?? String(account.id),
+			// The note's explicit accountId pins the exact account a human reviewed —
+			// but ONLY on a single-platform note. An `accountId:` is one id, and a
+			// multi-platform note needs a different one per platform, so applying it
+			// across the loop sends facebook and threads to an INSTAGRAM account id.
+			//
+			// That is not hypothetical: on 2026-08-08 three approved HLD notes carrying
+			// `accountId: 6789` (instagram) + `platform: facebook + instagram + threads`
+			// all died on the first send with Blotato `500 Account 6789 not found`.
+			// Nothing published — the claim-before-send ordering meant they parked at
+			// needs-review at 0/3 — but nothing could ever have published either. The
+			// dry run even printed `-> facebook (account 6789)` and it read as fine.
+			//
+			// Multi-platform => resolve per platform from the connected map. The pin
+			// survives where it is actually needed: a single-platform note choosing
+			// between two accounts on the SAME platform (HLD vs Burning Hearts TikTok).
+			accountId:
+				note.platforms.length === 1 && note.accountId
+					? note.accountId
+					: String(account.id),
 			...(pageId ? { pageId } : {}),
 			...(boardId ? { boardId } : {}),
 			text: note.copy,

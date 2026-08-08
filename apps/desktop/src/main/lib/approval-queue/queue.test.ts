@@ -727,3 +727,74 @@ describe("parseCrosspostable", () => {
 		expect(parseCrosspostable(note({ platform: "instagram", crosspostable: "" }))).toEqual([]);
 	});
 });
+
+describe("classify — accountId pinning across platforms (the 2026-08-08 500)", () => {
+	const CONNECTED = new Map<string, BlotatoAccount>([
+		["instagram", { id: "6789", platform: "instagram" }],
+		["facebook", { id: "5179", platform: "facebook" }],
+		["threads", { id: "2846", platform: "threads" }],
+		["tiktok", { id: "15026", platform: "tiktok" }],
+	]);
+	const TD = { facebookPageId: "100587251684586" };
+
+	function note(over: Partial<QueueNote> = {}): QueueNote {
+		return {
+			file: "/q/a.md",
+			status: "approved",
+			approved: true,
+			platforms: ["instagram"],
+			media: "https://x/y.png",
+			accountId: null,
+			pageId: null,
+			boardId: null,
+			scheduledTime: null,
+			schedulingStarted: null,
+			postIds: [],
+			copy: "hello",
+			type: null,
+			...over,
+		};
+	}
+
+	test("a multi-platform note resolves EACH platform's own account", () => {
+		// The live failure: accountId 6789 (instagram) was applied to facebook and
+		// threads too, and Blotato answered 500 "Account 6789 not found".
+		const c = classify(
+			note({
+				platforms: ["facebook", "instagram", "threads"],
+				accountId: "6789",
+			}),
+			Date.now(),
+			CONNECTED,
+			TD,
+		);
+		expect(c.kind).toBe("shippable");
+		if (c.kind !== "shippable") return;
+		expect(c.posts.map((p) => [p.platform, p.accountId])).toEqual([
+			["facebook", "5179"],
+			["instagram", "6789"],
+			["threads", "2846"],
+		]);
+	});
+
+	test("a single-platform note still honours the pin", () => {
+		// Why the pin exists: two TikTok accounts (HLD and Burning Hearts) live in one
+		// Blotato workspace, and indexAccounts keeps only the first per platform.
+		const c = classify(
+			note({ platforms: ["tiktok"], accountId: "52215" }),
+			Date.now(),
+			CONNECTED,
+			TD,
+		);
+		expect(c.kind).toBe("shippable");
+		if (c.kind !== "shippable") return;
+		expect(c.posts[0]?.accountId).toBe("52215");
+	});
+
+	test("no pin -> the connected account for that platform", () => {
+		const c = classify(note({ platforms: ["instagram"] }), Date.now(), CONNECTED, TD);
+		expect(c.kind).toBe("shippable");
+		if (c.kind !== "shippable") return;
+		expect(c.posts[0]?.accountId).toBe("6789");
+	});
+});
