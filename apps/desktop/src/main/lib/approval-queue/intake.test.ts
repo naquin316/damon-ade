@@ -67,6 +67,29 @@ describe("buildDraftNote — the note the drain must be able to read", () => {
 		expect(draft.filename).toBe("2026-07-15-intake-30oz-teacher-tumbler-48.md");
 	});
 
+	// "Click a day on the calendar to create a post" is the only reason this exists.
+	// It has to round-trip through readNote, because a scheduled_time the drain
+	// can't read would silently fall back to now+10min — the post would appear on
+	// the calendar on the day you picked and then fire today.
+	test("an optional scheduledTime is written and reads back", () => {
+		const d = buildDraftNote({
+			hint: "yeti tumbler",
+			copy: "x",
+			mediaUrl: "u",
+			door: "web",
+			date: "2026-07-15",
+			scheduledTime: "2026-07-20T15:00:00.000Z",
+		});
+		expect(readNote(d.filename, d.content).scheduledTime).toBe(
+			"2026-07-20T15:00:00.000Z",
+		);
+	});
+
+	test("no scheduledTime leaves the field off entirely (drain default applies)", () => {
+		expect(draft.content).not.toContain("scheduled_time");
+		expect(readNote(draft.filename, draft.content).scheduledTime).toBeNull();
+	});
+
 	test("a hint of only punctuation still yields a usable slug", () => {
 		const d = buildDraftNote({
 			hint: "!!!",

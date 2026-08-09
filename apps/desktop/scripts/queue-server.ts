@@ -31,7 +31,9 @@ import {
 	buildMonthGrid,
 	buildWeekGrid,
 	type CalEvent,
+	calKind,
 	centralDate,
+	isMovable,
 } from "../src/main/lib/approval-queue/calendar";
 import { createDraft } from "../src/main/lib/approval-queue/intake";
 import {
@@ -363,9 +365,14 @@ const server = Bun.serve({
 			});
 		}
 
-		// Calendar model: scheduled + published notes bucketed into a month/week
-		// grid (Central time). Reuses buildCard so the calendar shows exactly what
-		// the grid does, then maps to the pure calendar lib.
+		// Calendar model: the WHOLE pipeline bucketed into a month/week grid
+		// (Central time), not just what is already booked. A calendar that shows
+		// only `scheduled`/`published` is a receipt — you cannot plan with it,
+		// because everything still plannable is invisible.
+		//
+		// Reuses buildCard so the calendar shows exactly what the queue does, then
+		// maps to the pure calendar lib. `movable` comes from calendar.ts's
+		// isMovable, the same rule /api/edit's 409 enforces below.
 		if (url.pathname === "/api/calendar") {
 			const connected = await loadConnected();
 			const view = url.searchParams.get("view") === "week" ? "week" : "month";
@@ -377,18 +384,23 @@ const server = Bun.serve({
 				? (url.searchParams.get("anchor") as string)
 				: today;
 
-			const events: CalEvent[] = listNotes()
+			const all: CalEvent[] = listNotes()
 				.map((f) => buildCard(f, readFileSync(f, "utf8"), connected))
-				.filter(
-					(c) =>
-						(c.status === "scheduled" || c.status === "published") &&
-						!!c.scheduledTime,
-				)
+				.filter((c) => c.status !== "skipped")
 				.map((c) => ({
 					file: c.file,
 					slug: c.slug,
-					whenISO: c.scheduledTime as string,
-					kind: c.status === "published" ? "published" : "scheduled",
+					// `scheduled_time` is agent-written free text as often as an ISO
+					// stamp ("pending approval (no publish scheduled)" is live in the
+					// queue right now). Anything unparseable is treated as no time at
+					// all, so it lands in the backlog rail rather than vanishing.
+					whenISO:
+						c.scheduledTime && Number.isFinite(Date.parse(c.scheduledTime))
+							? c.scheduledTime
+							: null,
+					kind: calKind(c.status),
+					status: c.status,
+					movable: isMovable(c.status),
 					platforms: c.platforms,
 					media: c.media,
 					copy: c.copy,
@@ -397,9 +409,25 @@ const server = Bun.serve({
 
 			const grid =
 				view === "week"
-					? buildWeekGrid(events, anchor, today)
-					: buildMonthGrid(events, anchor, today);
-			return Response.json(grid);
+					? buildWeekGrid(
+							all.filter((e) => e.whenISO),
+							anchor,
+							today,
+						)
+					: buildMonthGrid(
+							all.filter((e) => e.whenISO),
+							anchor,
+							today,
+						);
+			return Response.json({
+				...grid,
+				// Planned but undated — there is no day to draw them on, so they get
+				// their own rail and are what you drag FROM.
+				unscheduled: all.filter((e) => !e.whenISO),
+				// Same caps classify() enforces, so a create/edit started from the
+				// calendar warns identically to one started from a card.
+				summary: { charLimits: charLimits() },
+			});
 		}
 
 		// Approve = tick the checkbox the drain reads AND commit the human's WHERE/WHEN
@@ -490,6 +518,27 @@ const server = Bun.serve({
 					{ status: 400 },
 				);
 
+			// An explicitly SENT time that futureIso rejects used to fall through to
+			// "no fields changed" and return ok:true — so a caller asking to move a
+			// post into the past got a success and no move. Silent no-ops are the
+			// worst answer here: the calendar would animate the chip onto a gone day
+			// and only the next poll would put it back, with no reason shown. An
+			// ABSENT time still means "leave it alone" (and clearScheduled still
+			// means "blank it"); only a supplied-but-unusable one is an error.
+			if (
+				typeof body.scheduledTime === "string" &&
+				body.scheduledTime.trim() &&
+				!futureIso(body.scheduledTime)
+			) {
+				return Response.json(
+					{
+						ok: false,
+						error: "scheduled_time must be a valid time in the future",
+					},
+					{ status: 400 },
+				);
+			}
+
 			let raw = readFileSync(path, "utf8");
 			const note = readNote(path, raw);
 			if (note.status === "scheduling" || note.status === "scheduled") {
@@ -578,6 +627,7 @@ const server = Bun.serve({
 				filename?: string;
 				contentType?: string;
 				base64?: string;
+				scheduledTime?: unknown;
 			};
 			if (!body.hint?.trim())
 				return Response.json(
@@ -598,6 +648,12 @@ const server = Bun.serve({
 					contentType: body.contentType || "image/jpeg",
 					hint: body.hint,
 					door: "web",
+					// Same futureIso gate as approve/edit: a past or garbage time is
+					// dropped rather than written, so the draft falls back to the
+					// drain's default delay instead of being born unschedulable.
+					...(futureIso(body.scheduledTime)
+						? { scheduledTime: futureIso(body.scheduledTime) as string }
+						: {}),
 				});
 				return Response.json({ ok: true, slug: draft.slug });
 			} catch (e) {
@@ -815,7 +871,7 @@ const PAGE = /* html */ `<!doctype html>
     <div>
       <label>When</label>
       <div class="when">
-        <label><input type="radio" name="apWhen" value="slot" checked onchange="apToggleWhen()"> Next free slot (~15 min)</label>
+        <label><input type="radio" name="apWhen" value="slot" checked onchange="apToggleWhen()"> Next free slot (~10 min)</label>
         <label><input type="radio" name="apWhen" value="at" onchange="apToggleWhen()"> At a specific time</label>
         <input type="datetime-local" id="apAt" disabled>
       </div>
@@ -850,7 +906,7 @@ const PAGE = /* html */ `<!doctype html>
     <div>
       <label>When</label>
       <div class="when">
-        <label><input type="radio" name="edWhen" value="slot" onchange="edToggleWhen()"> Next free slot (~15 min)</label>
+        <label><input type="radio" name="edWhen" value="slot" onchange="edToggleWhen()"> Next free slot (~10 min)</label>
         <label><input type="radio" name="edWhen" value="at" onchange="edToggleWhen()"> At a specific time</label>
         <input type="datetime-local" id="edAt" disabled>
       </div>

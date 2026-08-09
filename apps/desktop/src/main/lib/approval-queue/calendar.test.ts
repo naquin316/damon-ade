@@ -3,7 +3,9 @@ import {
 	buildMonthGrid,
 	buildWeekGrid,
 	type CalEvent,
+	calKind,
 	centralDate,
+	isMovable,
 } from "./calendar";
 
 function ev(over: Partial<CalEvent> = {}): CalEvent {
@@ -12,6 +14,8 @@ function ev(over: Partial<CalEvent> = {}): CalEvent {
 		slug: "a",
 		whenISO: "2026-07-15T14:00:00.000Z",
 		kind: "scheduled",
+		status: "scheduled",
+		movable: false,
 		platforms: ["instagram"],
 		media: null,
 		copy: null,
@@ -93,6 +97,45 @@ describe("buildMonthGrid", () => {
 	test("an event with an unparseable whenISO is dropped, not thrown", () => {
 		const g = buildMonthGrid([ev({ whenISO: "nope" })], "2026-07-10", "2026-07-16");
 		expect(g.weeks.flat().every((d) => d.events.length === 0)).toBe(true);
+	});
+
+	test("an undated event is dropped rather than crashing the grid", () => {
+		// The backlog rail's events come through the same type; the grid must simply
+		// not place them.
+		const g = buildMonthGrid([ev({ whenISO: null })], "2026-07-10", "2026-07-16");
+		expect(g.weeks.flat().every((d) => d.events.length === 0)).toBe(true);
+	});
+});
+
+/* The drag rule. It lives here, beside the grid, precisely so it cannot drift
+ * from `/api/edit`'s 409 — that endpoint refuses `scheduling`/`scheduled`
+ * because the post is already booked on Blotato's scheduler, and a calendar that
+ * offered the drag anyway would 409 on every drop. */
+describe("isMovable — the booking line", () => {
+	test("planned states can still be rescheduled", () => {
+		for (const s of ["pending", "approved", "needs-review"])
+			expect(isMovable(s)).toBe(true);
+	});
+	test("booked or gone states cannot", () => {
+		for (const s of ["scheduling", "scheduled", "published"])
+			expect(isMovable(s)).toBe(false);
+	});
+	test("an unknown status defaults to movable, matching what /api/edit accepts", () => {
+		expect(isMovable("something-new")).toBe(true);
+	});
+});
+
+describe("calKind — colour bucket", () => {
+	test("published is its own bucket", () => {
+		expect(calKind("published")).toBe("published");
+	});
+	test("scheduling reads as scheduled — it is mid-handoff, not plannable", () => {
+		expect(calKind("scheduling")).toBe("scheduled");
+		expect(calKind("scheduled")).toBe("scheduled");
+	});
+	test("everything else is planned", () => {
+		for (const s of ["pending", "approved", "needs-review"])
+			expect(calKind(s)).toBe("planned");
 	});
 });
 

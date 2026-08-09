@@ -44,6 +44,10 @@ export function buildDraftNote(args: {
 	platform?: string;
 	door: string;
 	date: string; // YYYY-MM-DD
+	/** Optional ISO instant to pre-book the draft at — what "click a day on the
+	 *  calendar to create a post" writes. Absent leaves the field off entirely, so
+	 *  the drain falls back to its own default delay. */
+	scheduledTime?: string;
 }): Draft {
 	const platform = (args.platform ?? "instagram").toLowerCase();
 	const slugBase =
@@ -67,6 +71,7 @@ export function buildDraftNote(args: {
 		"grade: ungraded (intake draft)",
 		`source: intake (${args.door})`,
 		`queued: ${args.date}`,
+		...(args.scheduledTime ? [`scheduled_time: ${args.scheduledTime}`] : []),
 		"---",
 	].join("\n");
 
@@ -141,6 +146,7 @@ export async function createDraft(
 		hint: string;
 		door: string;
 		platform?: string;
+		scheduledTime?: string;
 	},
 ): Promise<{ draft: Draft; path: string }> {
 	if (!input.hint.trim())
@@ -164,6 +170,7 @@ export async function createDraft(
 		platform: input.platform,
 		door: input.door,
 		date: deps.today(),
+		scheduledTime: input.scheduledTime,
 	});
 	const path = deps.writeNote(draft);
 	return { draft, path };

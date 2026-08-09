@@ -9,19 +9,46 @@
 
 const TZ = "America/Chicago";
 
-export type CalKind = "scheduled" | "published";
+export type CalKind = "scheduled" | "published" | "planned";
 
 export interface CalEvent {
 	file: string;
 	slug: string;
-	/** The ISO instant this event sits at (a note's scheduled_time). */
-	whenISO: string;
+	/** The ISO instant this event sits at (a note's scheduled_time), or null when
+	 *  the note has no usable time — those can't be placed on a day and belong in
+	 *  the caller's unscheduled backlog instead. */
+	whenISO: string | null;
 	kind: CalKind;
+	/** The raw queue status, so the UI colours and gates by it rather than
+	 *  re-deriving from `kind`. */
+	status: string;
+	/** Whether `/api/edit` will accept a reschedule. Computed here, next to the
+	 *  rule it mirrors, so the calendar's drag affordance and the server's 409
+	 *  can never disagree. */
+	movable: boolean;
 	platforms: string[];
 	media: string | null;
 	copy: string | null;
 	/** Live post URLs, for published events. */
 	urls: string[];
+}
+
+/* The booking line. Past it the post lives on Blotato's scheduler, and moving the
+ * vault note would desync the two — which is exactly why `/api/edit` refuses
+ * `scheduling`/`scheduled`. `published` is simply gone. */
+const BOOKED = new Set(["scheduling", "scheduled", "published"]);
+
+/** Can this note's time still be changed from the calendar? */
+export function isMovable(status: string): boolean {
+	return !BOOKED.has(status);
+}
+
+/** Colour bucket for a raw queue status. `scheduling` reads as scheduled: it is
+ *  mid-handoff to Blotato, not still plannable. */
+export function calKind(status: string): CalKind {
+	if (status === "published") return "published";
+	if (status === "scheduled" || status === "scheduling") return "scheduled";
+	return "planned";
 }
 
 export interface CalDay {
@@ -73,14 +100,17 @@ function weekday(ymd: string): number {
 function bucket(events: CalEvent[], tz: string): Map<string, CalEvent[]> {
 	const m = new Map<string, CalEvent[]>();
 	for (const e of events) {
-		const d = centralDate(e.whenISO, tz);
+		const d = e.whenISO ? centralDate(e.whenISO, tz) : null;
 		if (!d) continue;
 		const list = m.get(d) ?? [];
 		list.push(e);
 		m.set(d, list);
 	}
+	// Non-null is safe: only events that produced a Central day were pushed.
 	for (const list of m.values())
-		list.sort((a, b) => Date.parse(a.whenISO) - Date.parse(b.whenISO));
+		list.sort(
+			(a, b) => Date.parse(a.whenISO as string) - Date.parse(b.whenISO as string),
+		);
 	return m;
 }
 
