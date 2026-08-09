@@ -22,22 +22,18 @@
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, extname, join } from "node:path";
-import { createDraft } from "../src/main/lib/approval-queue/intake";
+import { basename, join } from "node:path";
+import {
+	createDraft,
+	type MediaKind,
+	mediaKindFrom,
+	mediaTypeFor,
+} from "../src/main/lib/approval-queue/intake";
 import { realIntakeDeps } from "../src/main/lib/approval-queue/intake-runner";
 import { telegramNotifier } from "../src/main/lib/approval-queue/notify";
 
 const ADE_HOME = process.env.ADE_HOME_DIR || join(homedir(), ".ade");
 const OFFSET_FILE = join(ADE_HOME, "intake-telegram-offset.json");
-
-const EXT_CONTENT_TYPE: Record<string, string> = {
-	".jpg": "image/jpeg",
-	".jpeg": "image/jpeg",
-	".png": "image/png",
-	".webp": "image/webp",
-	".heic": "image/heic",
-	".heif": "image/heif",
-};
 
 function loadOffset(): number {
 	try {
@@ -78,6 +74,8 @@ interface TgMessage {
 	caption?: string;
 	photo?: TgPhotoSize[];
 	document?: TgDocument;
+	/** Sent as a video rather than a file. Same shape as a document for our purposes. */
+	video?: TgDocument;
 }
 interface TgUpdate {
 	update_id: number;
@@ -96,7 +94,10 @@ async function tgGet(
 		`https://api.telegram.org/bot${token}/${method}?${qs}`,
 	);
 	const json = (await res.json()) as { ok?: boolean; result?: unknown };
-	if (!json.ok) throw new Error(`telegram ${method} failed: ${JSON.stringify(json).slice(0, 160)}`);
+	if (!json.ok)
+		throw new Error(
+			`telegram ${method} failed: ${JSON.stringify(json).slice(0, 160)}`,
+		);
 	return json.result;
 }
 
@@ -117,11 +118,16 @@ async function downloadFile(
 	return { bytes, filename: basename(file.file_path) };
 }
 
-/** Pick the image to ingest from a message: the largest photo size, or an
- *  image/* document (phone "send as file"). Null if the message carries neither. */
-function pickImage(
-	msg: TgMessage,
-): { fileId: string; filename: string; contentType: string } | null {
+/** Pick the media to ingest from a message: the largest photo size, a sent video, or
+ *  an image/video document (phone "send as file"). Null if the message carries none.
+ *  Extension->type comes from intake.ts's one table, so this door and the drop folder
+ *  can't disagree about what is droppable. */
+function pickMedia(msg: TgMessage): {
+	fileId: string;
+	filename: string;
+	contentType: string;
+	kind: MediaKind;
+} | null {
 	if (msg.photo?.length) {
 		// Photo sizes come smallest-first; the last is the highest resolution.
 		const largest = msg.photo[msg.photo.length - 1];
@@ -129,20 +135,25 @@ function pickImage(
 			fileId: largest.file_id,
 			filename: "telegram-photo.jpg",
 			contentType: "image/jpeg",
+			kind: "photo",
 		};
 	}
-	if (msg.document && (msg.document.mime_type ?? "").startsWith("image/")) {
-		const name = msg.document.file_name || "telegram-image";
-		return {
-			fileId: msg.document.file_id,
-			filename: name,
-			contentType:
-				msg.document.mime_type ||
-				EXT_CONTENT_TYPE[extname(name).toLowerCase()] ||
-				"image/jpeg",
-		};
-	}
-	return null;
+	const file = msg.video ?? msg.document;
+	if (!file) return null;
+	const mime = (file.mime_type ?? "").toLowerCase();
+	const name =
+		file.file_name || (msg.video ? "telegram-video.mp4" : "telegram-media");
+	// Trust the declared mime when it's media; otherwise fall back to the extension.
+	const byExt = mediaTypeFor(name);
+	if (!mime.startsWith("image/") && !mime.startsWith("video/") && !byExt)
+		return null;
+	const contentType = mime || byExt?.contentType || "image/jpeg";
+	return {
+		fileId: file.file_id,
+		filename: name,
+		contentType,
+		kind: mediaKindFrom(contentType),
+	};
 }
 
 async function main(): Promise<void> {
@@ -150,7 +161,9 @@ async function main(): Promise<void> {
 	const token = process.env.TELEGRAM_BOT_TOKEN;
 	const allowedChat = process.env.TELEGRAM_CHAT_ID;
 	if (!apiKey || apiKey.startsWith("op://")) {
-		console.error("intake-telegram: BLOTATO_API_KEY unresolved — use ./scripts/intake-telegram.sh");
+		console.error(
+			"intake-telegram: BLOTATO_API_KEY unresolved — use ./scripts/intake-telegram.sh",
+		);
 		process.exitCode = 1;
 		return;
 	}
@@ -204,13 +217,13 @@ async function main(): Promise<void> {
 				continue;
 			}
 
-			const img = pickImage(msg);
-			if (!img) continue; // not a photo message; nothing to do
+			const img = pickMedia(msg);
+			if (!img) continue; // not a media message; nothing to do
 
 			const hint = (msg.caption ?? "").trim();
 			if (!hint) {
 				await reply.send(
-					"📸 Got the photo, but I need a caption to write the copy. Send it again with a line like: 30oz teacher tumbler, engraved name, $48.",
+					"📸 Got it, but I need a caption to write the copy. Send it again with a line like: 30oz teacher tumbler, engraved name, $48.",
 				);
 				continue;
 			}
@@ -219,8 +232,10 @@ async function main(): Promise<void> {
 				const { bytes, filename } = await downloadFile(token, img.fileId);
 				const { draft } = await createDraft(deps, {
 					bytes,
-					filename: img.filename !== "telegram-photo.jpg" ? img.filename : filename,
+					filename:
+						img.filename !== "telegram-photo.jpg" ? img.filename : filename,
 					contentType: img.contentType,
+					kind: img.kind,
 					hint,
 					door: "telegram",
 				});

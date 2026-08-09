@@ -4,7 +4,8 @@
 # Resolves BLOTATO_API_KEY via the same 1Password service-account pipeline the drain
 # uses (refs in ~/.secrets.op.zsh -> op inject -> ~/.secrets.env, unlocked by the
 # token at ~/.config/op/dev-workstation.token, so it works headless), then processes
-# any photos waiting in "2. Areas/Social Media/Intake/".
+# any photos or video waiting in either drop root (the vault Intake dir and Google
+# Drive's "My Drive/Social Media/_Drop/"). Override with SOCIAL_INTAKE_DIRS.
 #
 #   ./scripts/intake-folder.sh
 set -uo pipefail

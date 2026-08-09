@@ -5,8 +5,16 @@ import {
 	cleanCopy,
 	createDraft,
 	type IntakeDeps,
+	lintVoice,
+	MAX_MEDIA_BYTES,
+	mediaKindFrom,
+	mediaTypeFor,
 } from "./intake";
-import { classify, readNote } from "./queue";
+import { classify, extractCopy, readNote } from "./queue";
+
+/** A caption that satisfies every HARD RULE, so a test can vary exactly one thing. */
+const CLEAN =
+	"Hand-engraved in New Braunfels, TX for the teacher who shows up early.\n\n#handengraved #teachergift #newbraunfels";
 
 describe("cleanCopy", () => {
 	test("strips quotes wrapping the whole caption", () => {
@@ -21,6 +29,72 @@ describe("cleanCopy", () => {
 		expect(cleanCopy("Shop the link. it ships fast.")).toBe(
 			"Shop the link. it ships fast.",
 		);
+	});
+});
+
+describe("mediaTypeFor — the one table every door filters on", () => {
+	test("photos and video both resolve, case-insensitively", () => {
+		expect(mediaTypeFor("IMG_1.JPG")).toEqual({
+			contentType: "image/jpeg",
+			kind: "photo",
+		});
+		expect(mediaTypeFor("reel.MOV")).toEqual({
+			contentType: "video/quicktime",
+			kind: "video",
+		});
+		expect(mediaTypeFor("clip.mp4")?.kind).toBe("video");
+	});
+
+	test("non-media is null, so a sidecar or a stray file is skipped not uploaded", () => {
+		expect(mediaTypeFor("note.txt")).toBeNull();
+		expect(mediaTypeFor(".DS_Store")).toBeNull();
+		expect(mediaTypeFor("README")).toBeNull();
+	});
+
+	test("kind from a content type the door already has", () => {
+		expect(mediaKindFrom("video/mp4")).toBe("video");
+		expect(mediaKindFrom("image/png")).toBe("photo");
+	});
+});
+
+describe("lintVoice — the HARD RULES, checked instead of merely requested", () => {
+	test("a compliant caption is clean", () => {
+		expect(lintVoice(CLEAN, ["instagram"])).toEqual([]);
+	});
+
+	// The two that actually got through on 2026-08-09 and reached a campaign.
+	test("catches the em dash and the invented dishwasher claim", () => {
+		const errs = lintVoice(
+			`${CLEAN.replace("early.", "early — every day. Dishwasher safe.")}`,
+			[],
+		);
+		expect(errs).toContain("em/en dash (HARD RULE: none)");
+		expect(errs).toContain("invented claim: dishwasher");
+	});
+
+	test("catches filler words, the wrong town, and a missing brand fact", () => {
+		const errs = lintVoice(
+			"It's really nice. Made in Round Rock. #a #b #c",
+			[],
+		);
+		expect(errs).toContain("filler word: really");
+		expect(errs).toContain("wrong town: Round Rock");
+		expect(errs).toContain('missing "New Braunfels, TX"');
+		expect(errs).toContain('missing "hand-engrave"');
+	});
+
+	test("counts hashtags against the 3-to-5 rule", () => {
+		expect(lintVoice(`${CLEAN} #four #five #six`, [])).toContain(
+			"6 hashtags (need 3 to 5)",
+		);
+	});
+
+	// The caps come from queue.ts. If this ever drifts, a caption could pass intake
+	// and then be blocked by the ship gate for a limit intake measured differently.
+	test("uses the same length caps the ship gate enforces", () => {
+		const long = `${"x".repeat(600)}\n${CLEAN}`;
+		expect(lintVoice(long, ["threads"]).join()).toContain("threads:");
+		expect(lintVoice(long, ["instagram"])).toEqual([]);
 	});
 });
 
@@ -160,6 +234,112 @@ describe("createDraft — orchestration", () => {
 			}),
 		).rejects.toThrow(/hint/);
 		expect(calls.uploaded).toBeUndefined();
+	});
+
+	// A note-to-a-human sitting inside the note is exactly the shape that got two
+	// `video-script` notes one field-edit away from being published as captions. The
+	// `## Voice check` heading is what stops the copy section, so this is load-bearing.
+	test("a Voice check block never leaks into what ships", () => {
+		const d = buildDraftNote({
+			hint: "yeti tumbler",
+			copy: CLEAN,
+			mediaUrl: "u",
+			door: "web",
+			date: "2026-07-15",
+			voiceIssues: ["filler word: just", "2 hashtags (need 3 to 5)"],
+		});
+		expect(d.content).toContain("## Voice check");
+		expect(extractCopy(d.content)).toBe(CLEAN);
+		expect(readNote(d.filename, d.content).copy).toBe(CLEAN);
+	});
+
+	test("a failed voice check is visible on the card, not only in the body", () => {
+		const d = buildDraftNote({
+			hint: "yeti tumbler",
+			copy: "x",
+			mediaUrl: "u",
+			door: "web",
+			date: "2026-07-15",
+			voiceIssues: ["filler word: just"],
+		});
+		expect(d.content).toContain("grade: voice check FAILED (1 issue)");
+	});
+
+	test("regenerates once when the copy fails, and keeps the better attempt", async () => {
+		let n = 0;
+		const { deps: d } = deps({
+			generateCopy: async () => {
+				n += 1;
+				return n === 1 ? "Nope — just bad. #one" : CLEAN;
+			},
+		});
+		const { draft } = await createDraft(d, {
+			bytes: new Uint8Array([1]),
+			filename: "a.jpg",
+			contentType: "image/jpeg",
+			hint: "teacher tumbler",
+			door: "web",
+		});
+		expect(n).toBe(2);
+		expect(extractCopy(draft.content)).toBe(CLEAN);
+		expect(draft.content).not.toContain("## Voice check");
+	});
+
+	test("stops at one retry and flags what survived — never loops", async () => {
+		let n = 0;
+		const { deps: d } = deps({
+			generateCopy: async () => {
+				n += 1;
+				return "Still just bad. #one";
+			},
+		});
+		const { draft } = await createDraft(d, {
+			bytes: new Uint8Array([1]),
+			filename: "a.jpg",
+			contentType: "image/jpeg",
+			hint: "teacher tumbler",
+			door: "web",
+		});
+		expect(n).toBe(2);
+		expect(draft.content).toContain("## Voice check");
+		expect(draft.content).toContain("filler word: just");
+		// Still a pending, editable draft — a flagged caption beats no caption.
+		expect(readNote(draft.filename, draft.content).status).toBe("pending");
+	});
+
+	// A drop folder is a trust boundary: whatever syncs into it gets read whole into
+	// memory. Refuse before the upload rather than hang on a 4K master.
+	test("an oversized file is refused before any upload", async () => {
+		const { deps: d, calls } = deps();
+		await expect(
+			createDraft(d, {
+				bytes: new Uint8Array(MAX_MEDIA_BYTES + 1),
+				filename: "master.mov",
+				contentType: "video/quicktime",
+				hint: "big",
+				door: "folder",
+			}),
+		).rejects.toThrow(/over the/);
+		expect(calls.uploaded).toBeUndefined();
+	});
+
+	test("a video's prompt says video, not photo", async () => {
+		const { deps: d, calls } = deps({
+			generateCopy: async (_sys, prompt) => {
+				calls.copyPrompt = prompt;
+				return CLEAN;
+			},
+		});
+		await createDraft(d, {
+			bytes: new Uint8Array([1]),
+			filename: "reel.mp4",
+			contentType: "video/mp4",
+			kind: "video",
+			hint: "engraving in progress",
+			door: "folder",
+		});
+		expect(calls.copyPrompt).toContain("video is already attached");
+		expect(calls.copyPrompt).not.toContain("photo");
 	});
 
 	test("empty generated copy is an error, not a blank post", async () => {

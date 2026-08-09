@@ -2,16 +2,29 @@
 /**
  * Intake DOOR 2 — the drop folder.
  *
- * Watches `2. Areas/Social Media/Intake/` for new product photos. For each image it
- * finds, it takes a hint (a sidecar `<name>.txt`, or the filename itself), runs the
- * shared intake core (upload -> HLD copy -> pending draft in the Approval Queue), and
- * moves the image into `Intake/processed/` so it's handled exactly once. A photo that
- * fails goes to `Intake/processed/failed/` so a permanently-bad file can't burn a
+ * Watches every configured drop root for new product media. For each file it finds it
+ * takes a hint (a sidecar `<name>.txt`, or the filename itself), runs the shared
+ * intake core (upload -> HLD copy -> voice check -> pending draft in the Approval
+ * Queue), and moves the file into `processed/` so it's handled exactly once. A file
+ * that fails goes to `processed/failed/` so a permanently-bad file can't burn a
  * `claude -p` call every run.
  *
- * Ryan drops a phone photo into the folder (via iCloud Files or Obsidian) with a
- * descriptive filename or a sidecar note, and a draft card appears — same pending ->
- * approve -> drain -> ship path as every other door. The vault stays the bus.
+ * TWO ROOTS, both scanned (2026-08-09):
+ *   1. the vault `2. Areas/Social Media/Intake/` — the original door, still live
+ *   2. Google Drive `My Drive/Social Media/_Drop/` — Ryan's working library
+ * Drive is a MOUNTED FOLDER (`~/Library/CloudStorage/GoogleDrive-…`), so this needs
+ * no API, no OAuth and no sync of its own; it is `readdir` like anything else. The
+ * old root is kept rather than cut over so a drop in the place that already worked
+ * doesn't silently stop producing cards. Override with `SOCIAL_INTAKE_DIRS` (a
+ * colon-separated list) — a missing root is skipped, not an error.
+ *
+ * SUBFOLDER = ROUTING. One level below a root is read as intent: a known name in
+ * ROUTES (Reel/Post/Story) sets the note's platforms; any other name is treated as
+ * context and prepended to the hint, so `_Drop/Teacher Tumblers/IMG_1.jpg` gets
+ * "Teacher Tumblers" in its brief for free. A typo'd folder degrades to context,
+ * which is visible on the card, rather than to a wrong platform, which is not.
+ *
+ * Video is accepted alongside photos — see MEDIA_TYPES in intake.ts.
  *
  *   ./scripts/intake-folder.sh          # process whatever is waiting
  *
@@ -26,24 +39,43 @@ import {
 	renameSync,
 	statSync,
 } from "node:fs";
-import { basename, extname, join } from "node:path";
-import { createDraft } from "../src/main/lib/approval-queue/intake";
+import { homedir } from "node:os";
+import { basename, dirname, extname, join } from "node:path";
+import {
+	createDraft,
+	mediaTypeFor,
+} from "../src/main/lib/approval-queue/intake";
 import { realIntakeDeps } from "../src/main/lib/approval-queue/intake-runner";
 import { vaultRoot } from "../src/main/lib/orchestrator/vault";
 
-const INTAKE_DIR = join(vaultRoot(), "2. Areas/Social Media/Intake");
-const PROCESSED_DIR = join(INTAKE_DIR, "processed");
-const FAILED_DIR = join(PROCESSED_DIR, "failed");
+/** Drop roots, in scan order. A root that doesn't exist is skipped. */
+const DEFAULT_ROOTS = [
+	join(vaultRoot(), "2. Areas/Social Media/Intake"),
+	join(
+		homedir(),
+		"Library/CloudStorage/GoogleDrive-handlanedesigns@gmail.com/My Drive/Social Media/_Drop",
+	),
+];
 
-/** Image extensions the door accepts. Blotato stores whatever bytes it's given; what
- *  a platform ultimately accepts is a downstream concern (and visible on the card). */
-const IMAGE_EXT: Record<string, string> = {
-	".jpg": "image/jpeg",
-	".jpeg": "image/jpeg",
-	".png": "image/png",
-	".webp": "image/webp",
-	".heic": "image/heic",
-	".heif": "image/heif",
+function roots(): string[] {
+	const override = process.env.SOCIAL_INTAKE_DIRS;
+	return override ? override.split(":").filter(Boolean) : DEFAULT_ROOTS;
+}
+
+/**
+ * Subfolder name -> the note's `platform:` field (`+`-separated, per parsePlatforms).
+ *
+ * Deliberately small. These are the three shapes the pipeline actually posts today;
+ * anything else is better as hint context than as a guess about where it should go.
+ * The approval UI's WHERE picker is still the final say — this only sets the default.
+ */
+const ROUTES: Record<string, string> = {
+	reel: "instagram + facebook",
+	reels: "instagram + facebook",
+	post: "instagram + facebook",
+	posts: "instagram + facebook",
+	story: "instagram",
+	stories: "instagram",
 };
 
 /** Turn a filename into a usable hint when there's no sidecar: strip the extension,
@@ -72,11 +104,42 @@ function moveTo(dir: string, path: string): void {
 	renameSync(path, uniqueDest(dir, basename(path)));
 }
 
-async function main(): Promise<void> {
-	// Create the folder tree so the door exists for Ryan to drop into even on a fresh
-	// machine, then there's simply nothing to process.
-	mkdirSync(PROCESSED_DIR, { recursive: true });
+/** One droppable file, with where it came from already resolved into intent. */
+interface Candidate {
+	path: string;
+	file: string;
+	/** Absolute `processed/` dir for this file's root. */
+	processed: string;
+	/** Subfolder name, or "" when the file sat at the root. */
+	folder: string;
+}
 
+/** Everything waiting under one root: its own files, plus one level of subfolders.
+ *  `processed` (and its `failed` child) are skipped — that's where we move things TO. */
+function scan(root: string): Candidate[] {
+	const processed = join(root, "processed");
+	const out: Candidate[] = [];
+
+	const collect = (dir: string, folder: string): void => {
+		for (const file of readdirSync(dir).sort()) {
+			if (file.startsWith(".")) continue;
+			if (mediaTypeFor(file))
+				out.push({ path: join(dir, file), file, processed, folder });
+		}
+	};
+
+	collect(root, "");
+	for (const entry of readdirSync(root, { withFileTypes: true }).sort((a, b) =>
+		a.name.localeCompare(b.name),
+	)) {
+		if (!entry.isDirectory()) continue;
+		if (entry.name === "processed" || entry.name.startsWith(".")) continue;
+		collect(join(root, entry.name), entry.name);
+	}
+	return out;
+}
+
+async function main(): Promise<void> {
 	const apiKey = process.env.BLOTATO_API_KEY;
 	if (!apiKey || apiKey.startsWith("op://")) {
 		console.error(
@@ -86,13 +149,19 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	const entries = readdirSync(INTAKE_DIR)
-		.filter((f) => !f.startsWith("."))
-		.filter((f) => extname(f).toLowerCase() in IMAGE_EXT)
-		.sort();
+	const waiting: Candidate[] = [];
+	for (const root of roots()) {
+		if (!existsSync(root)) {
+			console.log(`intake-folder: ${root} not present — skipping`);
+			continue;
+		}
+		// Create the tree so the door exists to drop into even on a fresh machine.
+		mkdirSync(join(root, "processed"), { recursive: true });
+		waiting.push(...scan(root));
+	}
 
-	if (!entries.length) {
-		console.log(`intake-folder: nothing waiting in ${INTAKE_DIR}`);
+	if (!waiting.length) {
+		console.log("intake-folder: nothing waiting");
 		return;
 	}
 
@@ -100,10 +169,12 @@ async function main(): Promise<void> {
 	let made = 0;
 	let failed = 0;
 
-	for (const file of entries) {
-		const path = join(INTAKE_DIR, file);
-		// A dataless iCloud placeholder (0 bytes, or a `.icloud` stub) isn't downloaded
-		// yet — skip it this run; it'll materialize and get picked up later.
+	for (const { path, file, processed, folder } of waiting) {
+		const media = mediaTypeFor(file);
+		if (!media) continue; // unreachable; scan already filtered
+
+		// A dataless iCloud/Drive placeholder (0 bytes, or a `.icloud` stub) isn't
+		// downloaded yet — skip it this run; it'll materialize and get picked up later.
 		let size = 0;
 		try {
 			size = statSync(path).size;
@@ -111,12 +182,15 @@ async function main(): Promise<void> {
 			continue;
 		}
 		if (size === 0) {
-			console.log(`intake-folder: ${file} not downloaded yet (0 bytes) — skipping`);
+			console.log(
+				`intake-folder: ${file} not downloaded yet (0 bytes) — skipping`,
+			);
 			continue;
 		}
 
-		// Hint: a sidecar `<name>.txt` wins; otherwise the filename itself.
-		const sidecar = join(INTAKE_DIR, `${basename(file, extname(file))}.txt`);
+		// Hint: a sidecar `<name>.txt` wins; otherwise the filename itself. A subfolder
+		// that isn't a route contributes its name as context.
+		const sidecar = join(dirname(path), `${basename(file, extname(file))}.txt`);
 		let hint = "";
 		if (existsSync(sidecar)) {
 			try {
@@ -128,19 +202,26 @@ async function main(): Promise<void> {
 		if (!hint) hint = hintFromFilename(file);
 		if (!hint) hint = "product photo";
 
+		const platform = ROUTES[folder.toLowerCase()];
+		if (folder && !platform) hint = `${folder}: ${hint}`;
+
 		try {
 			const bytes = new Uint8Array(readFileSync(path));
 			const { draft } = await createDraft(deps, {
 				bytes,
 				filename: file,
-				contentType: IMAGE_EXT[extname(file).toLowerCase()] ?? "image/jpeg",
+				contentType: media.contentType,
+				kind: media.kind,
 				hint,
+				platform,
 				door: "folder",
 			});
-			console.log(`intake-folder: ✅ ${file} -> ${draft.slug}`);
+			console.log(
+				`intake-folder: ✅ ${folder ? `${folder}/` : ""}${file} -> ${draft.slug}${platform ? ` [${platform}]` : ""}`,
+			);
 			made += 1;
-			moveTo(PROCESSED_DIR, path);
-			if (existsSync(sidecar)) moveTo(PROCESSED_DIR, sidecar);
+			moveTo(processed, path);
+			if (existsSync(sidecar)) moveTo(processed, sidecar);
 		} catch (e) {
 			console.error(
 				`intake-folder: ❌ ${file}: ${e instanceof Error ? e.message : String(e)}`,
@@ -148,8 +229,8 @@ async function main(): Promise<void> {
 			failed += 1;
 			// Quarantine the failure so it doesn't reprocess (and re-bill) every run.
 			try {
-				moveTo(FAILED_DIR, path);
-				if (existsSync(sidecar)) moveTo(FAILED_DIR, sidecar);
+				moveTo(join(processed, "failed"), path);
+				if (existsSync(sidecar)) moveTo(join(processed, "failed"), sidecar);
 			} catch {
 				// if we can't even move it, leave it; next run will retry
 			}

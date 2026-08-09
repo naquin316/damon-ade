@@ -3,20 +3,24 @@
 <!--
   Intake DOOR 2 — drop folder (RYA-166 intake).
 
-  Every 5 minutes: process any product photos waiting in
-  `2. Areas/Social Media/Intake/`. Each becomes a pending draft in the Approval
-  Queue (upload -> HLD copy -> note), then flows through the normal approve -> drain
-  -> ship path. Ryan drops a phone photo into the folder via iCloud Files or
-  Obsidian, with a descriptive filename or a sidecar `<name>.txt`, and a card
-  appears. No app required — launchd, so it works with RyanOS closed.
+  Every 5 minutes: process any product photo OR VIDEO waiting in either drop root —
+  the vault's `2. Areas/Social Media/Intake/` and Google Drive's
+  `My Drive/Social Media/_Drop/`. Each becomes a pending draft in the Approval Queue
+  (upload -> HLD copy -> voice check -> note), then flows through the normal
+  approve -> drain -> ship path. Ryan drops a photo from his phone (iCloud Files,
+  Obsidian, or the Drive app) with a descriptive filename or a sidecar `<name>.txt`,
+  and a card appears. No app required — launchd, so it works with RyanOS closed.
+
+  A subfolder one level down routes the post: Reel/Post/Story set the platforms,
+  any other folder name becomes context on the hint.
 
   Runs via intake-folder.sh, which resolves BLOTATO_API_KEY through the same
   1Password service-account pipeline the drain uses (op inject -> ~/.secrets.env,
   unlocked by ~/.config/op/dev-workstation.token — headless, no biometric prompt).
 
-  Idle cost is one readdir; a `claude -p` call happens only when a new photo is
-  present. Processed images move to Intake/processed/ (failures to
-  Intake/processed/failed/) so nothing is handled — or billed — twice.
+  Idle cost is one readdir per root; a `claude -p` call happens only when new media
+  is present. Processed files move to that root's processed/ (failures to
+  processed/failed/) so nothing is handled — or billed — twice.
 
   Install:
     cp scripts/com.ryan.intake-folder.plist ~/Library/LaunchAgents/

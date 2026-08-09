@@ -35,7 +35,10 @@ import {
 	centralDate,
 	isMovable,
 } from "../src/main/lib/approval-queue/calendar";
-import { createDraft } from "../src/main/lib/approval-queue/intake";
+import {
+	createDraft,
+	mediaKindFrom,
+} from "../src/main/lib/approval-queue/intake";
 import {
 	QUEUE_DIR,
 	realIntakeDeps,
@@ -44,10 +47,10 @@ import {
 	charLimits,
 	checkTarget,
 	classify,
+	type PostTarget,
 	parseCrosspostable,
 	parsePostTargets,
 	platformFromUrl,
-	type PostTarget,
 	type QueueNote,
 	readNote,
 	replaceCopySection,
@@ -127,8 +130,7 @@ interface AccountView {
 	 *  go out — as opposed to a `crosspostable:` suggestion the human could add?
 	 *  Row views show only the real targets; the note editor offers both. */
 	onNote: boolean;
-	state:
-		/** Confirmed live — we have the URL. */
+	state: /** Confirmed live — we have the URL. */
 		| "published"
 		/** Booked on Blotato's scheduler; fires at scheduled_time. */
 		| "booked"
@@ -148,11 +150,7 @@ interface AccountView {
 
 /** Statuses where the send has already been attempted, so an account with no
  *  post id genuinely missed it rather than merely not having gone yet. */
-const POST_ATTEMPTED = new Set([
-	"scheduled",
-	"published",
-	"needs-review",
-]);
+const POST_ATTEMPTED = new Set(["scheduled", "published", "needs-review"]);
 
 /**
  * Merge three sources into one per-account answer: the attributed post ids, the
@@ -222,7 +220,13 @@ function buildAccounts(
 		// classify() calls, so the card cannot promise a send the drain refuses.
 		// Without a Blotato key there is no account map and no honest answer.
 		if (!connected)
-			return { ...base, state: "planned", url: null, postId: null, reason: null };
+			return {
+				...base,
+				state: "planned",
+				url: null,
+				postId: null,
+				reason: null,
+			};
 
 		const check = checkTarget(note, platform, connected, TARGET_DEFAULTS);
 		return check.ok
@@ -519,8 +523,7 @@ const server = Bun.serve({
 		if (url.pathname === "/api/calendar") {
 			const connected = await loadConnected();
 			const view = url.searchParams.get("view") === "week" ? "week" : "month";
-			const today =
-				centralDate(new Date().toISOString()) ?? "1970-01-01";
+			const today = centralDate(new Date().toISOString()) ?? "1970-01-01";
 			const anchor = /^\d{4}-\d{2}-\d{2}$/.test(
 				url.searchParams.get("anchor") ?? "",
 			)
@@ -596,7 +599,10 @@ const server = Bun.serve({
 			const iso = futureIso(body.scheduledTime);
 			if (iso) fields.scheduled_time = iso;
 
-			writeFileSync(path, upsertFrontmatter(readFileSync(path, "utf8"), fields));
+			writeFileSync(
+				path,
+				upsertFrontmatter(readFileSync(path, "utf8"), fields),
+			);
 			return Response.json({ ok: true });
 		}
 
@@ -740,8 +746,7 @@ const server = Bun.serve({
 				else if (body.clearScheduled === true && note.scheduledTime)
 					fields.scheduled_time = "";
 
-				if (Object.keys(fields).length)
-					raw = upsertFrontmatter(raw, fields);
+				if (Object.keys(fields).length) raw = upsertFrontmatter(raw, fields);
 
 				if (typeof body.copy === "string" && body.copy.trim()) {
 					const rewritten = replaceCopySection(raw, body.copy);
@@ -801,6 +806,7 @@ const server = Bun.serve({
 					bytes,
 					filename: body.filename || "intake.jpg",
 					contentType: body.contentType || "image/jpeg",
+					kind: mediaKindFrom(body.contentType || "image/jpeg"),
 					hint: body.hint,
 					door: "web",
 					// Same futureIso gate as approve/edit: a past or garbage time is
@@ -999,7 +1005,7 @@ const PAGE = /* html */ `<!doctype html>
       <label>Photo</label>
       <div class="drop" id="drop" onclick="document.getElementById('file').click()">
         <span id="dropText">Tap to choose a photo</span>
-        <input type="file" id="file" accept="image/*" style="display:none" onchange="pickFile(this)">
+        <input type="file" id="file" accept="image/*,video/*" style="display:none" onchange="pickFile(this)">
         <div id="preview"></div>
       </div>
     </div>
@@ -1046,7 +1052,7 @@ const PAGE = /* html */ `<!doctype html>
       <label>Photo</label>
       <div class="drop" id="edDrop" onclick="document.getElementById('edFile').click()">
         <span id="edDropText">Tap to replace the photo</span>
-        <input type="file" id="edFile" accept="image/*" style="display:none" onchange="edPickFile(this)">
+        <input type="file" id="edFile" accept="image/*,video/*" style="display:none" onchange="edPickFile(this)">
         <div id="edPreview"></div>
       </div>
     </div>
@@ -1130,7 +1136,7 @@ function render(force){
 }
 function card(c){
   const terminal=["scheduled","published","skipped","needs-review","shipping"].includes(c.state);
-  const label=u=>{try{return new URL(u).hostname.replace(/^www\./,"").replace(/\.com$/,"");}catch{return u;}};
+  const label=u=>{try{return new URL(u).hostname.replace(/^www./,"").replace(/.com$/,"");}catch{return u;}};
   const canApprove=c.state==="ready"||c.state==="unknown";
   const disabled=!!c.escalation||!canApprove;
   const chips=[c.brand,c.platforms.join(" + "),c.grade&&('★ '+c.grade.split(' ')[0]),c.runId&&('run '+c.runId.slice(0,8)),c.source]
@@ -1326,7 +1332,7 @@ function calEvClick(evt, file, kind){
   if(kind==="scheduled"){ openEdit(file); return; }
   const c=cardByFile(file);
   const urls=(c&&c.publishedUrls)||[];
-  const label=u=>{try{return new URL(u).hostname.replace(/^www\./,"").replace(/\.com$/,"");}catch{return u;}};
+  const label=u=>{try{return new URL(u).hostname.replace(/^www./,"").replace(/.com$/,"");}catch{return u;}};
   pop.innerHTML=\`<div class="pcopy">\${esc((c&&c.copy)||"")}</div>\`+urls.map(u=>\`<a href="\${esc(u)}" target="_blank" rel="noopener">\${esc(label(u))} ↗</a>\`).join("");
   pop.style.left=Math.min(evt.clientX, window.innerWidth-300)+"px";
   pop.style.top=Math.min(evt.clientY, window.innerHeight-200)+"px";
