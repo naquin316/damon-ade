@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The PRODUCER — weekly queue restock.
+
+  Mondays at 07:00 local: if the approvable shelf is below target, describe the next
+  never-posted photos in the Google Drive library and draft them into the Approval
+  Queue as `pending`, then Telegram Ryan that there is something to review.
+
+  WHY IT EXISTS: every other job in this repo is reactive. Doors turn what Ryan hands
+  over into drafts; the drain ships what he approves. Nothing ever STARTED a post, so
+  the queue held only what a person had put there — which is how the pipeline sat
+  "healthy and idle" for three weeks with nothing to publish. The bottleneck was never
+  approval, it was supply.
+
+  It cannot publish and it cannot approve: createDraft writes `approved: false`, and
+  the drain is the only thing that talks to Blotato about shipping. The worst a bad
+  run does is leave a draft Ryan declines.
+
+  MAX_PER_RUN (5) caps a run regardless of the shortfall, so a miscount costs five
+  calls rather than a runaway. Every photo it considers is recorded in
+  ~/.ade/stock-queue-used.json whether or not it produced a draft — otherwise one
+  unusable image would be re-picked first every week forever.
+
+  Runs via stock-queue.sh, which resolves BLOTATO_API_KEY through the same 1Password
+  service-account pipeline the drain uses (headless, no biometric prompt) and passes
+  through the Telegram creds if they are present.
+
+  Install:
+    cp scripts/com.ryan.stock-queue.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.ryan.stock-queue.plist
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.ryan.stock-queue.plist
+  Run by hand:
+    ./scripts/stock-queue.sh --dry-run
+  Watch:
+    tail -f ~/.ade/stock-queue.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ryan.stock-queue</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/ryannaquin/Code/damon-ade/scripts/stock-queue.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/ryannaquin/Code/damon-ade</string>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/Users/ryannaquin/.ade/stock-queue.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ryannaquin/.ade/stock-queue.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/ryannaquin/.bun/bin:/Users/ryannaquin/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
