@@ -94,4 +94,17 @@ describe("hintPrompt", () => {
 		expect(p).toContain("Only describe what you can actually see");
 		expect(p).toContain("SKIP");
 	});
+
+	// Found on the first live run: a six-panel collage was described as its top-left
+	// panel alone, producing a single-product caption over an image showing six —
+	// including another company's trademark and a customer's face. Nothing downstream
+	// can catch it, because the caption is honest about the panel it describes.
+	test("refuses collages, faces and other companies' marks", () => {
+		const p = hintPrompt("/x/collage.png");
+		expect(p).toContain("more than one distinct product");
+		expect(p).toContain("collage");
+		expect(p).toContain("recognisable person's face");
+		expect(p).toContain("trademark");
+		expect(p).toContain("When in doubt, SKIP");
+	});
 });

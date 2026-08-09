@@ -78,11 +78,29 @@ export function pickPhotos(
  * writer trusts completely. A hallucinated material or price here becomes a
  * confident lie in the caption, and the voice linter cannot catch a claim that is
  * merely false rather than banned.
+ *
+ * A COLLAGE IS THE DANGEROUS CASE, and the first run proved it. `collage.PNG` is a
+ * six-panel grid — a barrel head, a Coca-Cola Zero tumbler, three Naval Academy YETIs,
+ * a customer's memorial plaque with a photo of real people, a birth announcement, and
+ * a tray of corporate ABM patches. The model described the top-left panel and nothing
+ * else, so the draft read as one product while the image showed six, and would have
+ * published someone else's trademark and a stranger's face. Nothing downstream can
+ * catch that: the caption is honest about the panel it describes, so the linter passes
+ * it and the card looks fine. It has to be refused at the only point that sees the
+ * whole image.
  */
 export function hintPrompt(imagePath: string): string {
 	return `Read the image at "${imagePath}" and reply with ONE line describing this Hand Lane Designs product for a social caption brief: what the item is, its material and colour, and what is engraved on it.
 
-Only describe what you can actually see. Do NOT guess a price, a size in ounces, a brand name, or what it is made of if you cannot tell. If the photo is not a product photo (a logo, a screenshot, a mockup sheet, a person), reply with exactly: SKIP
+Only describe what you can actually see. Do NOT guess a price, a size in ounces, a brand name, or what it is made of if you cannot tell.
+
+Reply with exactly SKIP, and nothing else, if ANY of these are true:
+- the image shows more than one distinct product (a collage, a grid, a multi-photo layout, a product line-up)
+- it is not a product photo at all (a logo, a screenshot, a mockup sheet, a workshop or machine shot)
+- it shows a recognisable person's face
+- the engraving carries another company's logo or trademark
+
+A single product photographed from one angle is the ONLY thing to describe. When in doubt, SKIP.
 
 No preamble, no quotes.`;
 }
