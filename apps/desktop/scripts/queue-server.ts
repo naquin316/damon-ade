@@ -42,8 +42,12 @@ import {
 } from "../src/main/lib/approval-queue/intake-runner";
 import {
 	charLimits,
+	checkTarget,
 	classify,
 	parseCrosspostable,
+	parsePostTargets,
+	platformFromUrl,
+	type PostTarget,
 	type QueueNote,
 	readNote,
 	replaceCopySection,
@@ -103,6 +107,134 @@ interface CardView {
 	/** `status: scheduled` but no blotato_post_ids — a past session marked it done
 	 *  without ever booking it, so it will never post. Offer a re-queue. */
 	orphaned: boolean;
+	/** Per-account truth. See buildAccounts. */
+	accounts: AccountView[];
+}
+
+/**
+ * What is actually true of ONE account on this note.
+ *
+ * The card used to carry `platforms: string[]` and nothing else, which reads as
+ * "these three are going out" no matter what has already happened. On
+ * 2026-08-08 an ammo-box note showed "Facebook · Instagram · Threads" while
+ * Facebook and Instagram were already live and Threads was 173 characters over
+ * its cap and could never post. Every screen agreed, and all of them were
+ * wrong.
+ */
+interface AccountView {
+	platform: string;
+	/** Is this platform actually on the note's `platform:` line — i.e. would it
+	 *  go out — as opposed to a `crosspostable:` suggestion the human could add?
+	 *  Row views show only the real targets; the note editor offers both. */
+	onNote: boolean;
+	state:
+		/** Confirmed live — we have the URL. */
+		| "published"
+		/** Booked on Blotato's scheduler; fires at scheduled_time. */
+		| "booked"
+		/** This note is past the send and this account did NOT get a post. */
+		| "not-sent"
+		/** Nothing sent yet, and it would be accepted today. */
+		| "planned"
+		/** Nothing sent yet, and it would be REFUSED — with the reason. */
+		| "blocked";
+	/** Live post URL, once confirmed. */
+	url: string | null;
+	/** Blotato postSubmissionId, once booked. */
+	postId: string | null;
+	/** Why this account can't ship, for `blocked`. */
+	reason: string | null;
+}
+
+/** Statuses where the send has already been attempted, so an account with no
+ *  post id genuinely missed it rather than merely not having gone yet. */
+const POST_ATTEMPTED = new Set([
+	"scheduled",
+	"published",
+	"needs-review",
+]);
+
+/**
+ * Merge three sources into one per-account answer: the attributed post ids, the
+ * confirmed live URLs, and the same per-platform gate check the drain runs.
+ *
+ * Ordering matters. A live URL beats a booking, a booking beats a gate opinion,
+ * and only once nothing has been sent does the gate get to speak — otherwise a
+ * note whose copy was edited after publishing would report an already-live
+ * account as "blocked".
+ */
+function buildAccounts(
+	note: QueueNote,
+	connected: Map<string, BlotatoAccount> | null,
+	publishedUrls: string[],
+	crosspostable: string[],
+	priorTargets: PostTarget[],
+): AccountView[] {
+	// `already_posted` is what a re-queue leaves behind: posts that really went to
+	// Blotato on an earlier attempt. Nothing polls it, but it is the reason a
+	// re-queued half-publish can't be re-sent to the accounts that succeeded.
+	const byPlatform = new Map<string, string>();
+	for (const t of [...note.postTargets, ...priorTargets])
+		if (t.platform && !byPlatform.has(t.platform))
+			byPlatform.set(t.platform, t.id);
+
+	const urlFor = new Map<string, string>();
+	for (const u of publishedUrls) {
+		const p = platformFromUrl(u);
+		if (p && !urlFor.has(p)) urlFor.set(p, u);
+	}
+
+	const attempted = POST_ATTEMPTED.has(note.status);
+	const onNote = new Set(note.platforms);
+
+	// The note's own targets first, then any crosspost suggestion not already
+	// among them — a booked post on a platform the human later removed from the
+	// line still has to show up, or it becomes invisible while being live.
+	const platforms = [
+		...note.platforms,
+		...crosspostable.filter((p) => !onNote.has(p)),
+		...[...byPlatform.keys(), ...urlFor.keys()].filter(
+			(p) => !onNote.has(p) && !crosspostable.includes(p),
+		),
+	].filter((p, i, all) => all.indexOf(p) === i);
+
+	return platforms.map((platform): AccountView => {
+		const base = { platform, onNote: onNote.has(platform) };
+		const postId = byPlatform.get(platform) ?? null;
+		const url = urlFor.get(platform) ?? null;
+
+		if (url) return { ...base, state: "published", url, postId, reason: null };
+		if (postId)
+			return { ...base, state: "booked", url: null, postId, reason: null };
+
+		if (attempted && base.onNote)
+			return {
+				...base,
+				state: "not-sent",
+				url: null,
+				postId: null,
+				// The note-level needs_review_reason already carries the API error;
+				// repeating it per account would just be loud.
+				reason: null,
+			};
+
+		// Nothing sent. Ask the gate whether it WOULD go — the same function
+		// classify() calls, so the card cannot promise a send the drain refuses.
+		// Without a Blotato key there is no account map and no honest answer.
+		if (!connected)
+			return { ...base, state: "planned", url: null, postId: null, reason: null };
+
+		const check = checkTarget(note, platform, connected, TARGET_DEFAULTS);
+		return check.ok
+			? { ...base, state: "planned", url: null, postId: null, reason: null }
+			: {
+					...base,
+					state: "blocked",
+					url: null,
+					postId: null,
+					reason: check.detail,
+				};
+	});
 }
 
 /** Format an ISO time for display in Central. */
@@ -224,13 +356,27 @@ function buildCard(
 		}
 	}
 
+	const publishedUrls = (fmField(raw, "published_urls") ?? "")
+		.split(/\s*,\s*/)
+		.map((s) => s.trim())
+		.filter(Boolean);
+	const crosspostable = parseCrosspostable(raw);
+	const priorTargets = parsePostTargets(fmField(raw, "already_posted"));
+
 	return {
 		file,
 		slug,
 		status: note.status,
 		approved: note.approved,
 		platforms: note.platforms,
-		crosspostable: parseCrosspostable(raw),
+		accounts: buildAccounts(
+			note,
+			connected,
+			publishedUrls,
+			crosspostable,
+			priorTargets,
+		),
+		crosspostable,
 		media: note.media,
 		copy: note.copy,
 		brand: fmField(raw, "brand"),
@@ -245,10 +391,7 @@ function buildCard(
 		reviewReason: fmField(raw, "needs_review_reason") ?? null,
 		scheduledTime,
 		postIds,
-		publishedUrls: (fmField(raw, "published_urls") ?? "")
-			.split(/\s*,\s*/)
-			.map((s) => s.trim())
-			.filter(Boolean),
+		publishedUrls,
 		orphaned,
 	};
 }
@@ -480,9 +623,21 @@ const server = Bun.serve({
 			// pending and fine, and `blotato_post_ids` from a half-finished send would
 			// be polled against if it ever reached `scheduled` again. "Fresh pending"
 			// has to mean fresh.
+			//
+			// But DELETING the ids threw away the only record of which accounts had
+			// already gone out, on exactly the notes where that matters most — a
+			// half-published post re-queued and re-approved double-posts every
+			// platform that succeeded the first time. So the ids are RENAMED rather
+			// than dropped: `already_posted` is polled by nothing and read by the
+			// per-account view, which locks those accounts out of the next send.
 			const cleaned =
 				url.pathname === "/api/requeue"
-					? raw.replace(/^(needs_review_reason|blotato_post_ids):.*$\n?/gm, "")
+					? raw
+							.replace(/^needs_review_reason:.*$\n?/gm, "")
+							.replace(/^already_posted:.*$\n?/gm, "")
+							.replace(/^blotato_post_ids:[ \t]*(.*)$/gm, (_m, ids: string) =>
+								ids.trim() ? `already_posted: ${ids.trim()}` : "",
+							)
 					: raw;
 			const next =
 				url.pathname === "/api/requeue"

@@ -98,6 +98,87 @@ export interface TargetDefaults {
 	unavailable?: Record<string, string>;
 }
 
+/** One booked post, and the account it went to. */
+export interface PostTarget {
+	/** Lower-cased platform, or null for an id written before ids carried one. */
+	platform: string | null;
+	id: string;
+}
+
+/**
+ * Read `blotato_post_ids`, which comes in two shapes.
+ *
+ * Current: `facebook:<id>,instagram:<id>` — written by ship.ts, one entry per
+ * post actually sent, in send order.
+ * Legacy:  `<id>,<id>` — bare, no attribution. Every note booked before
+ * 2026-08-08 looks like this, and the two half-published HLD notes that
+ * prompted the change are among them.
+ *
+ * Both parse. A bare id yields `platform: null`, which downstream must render as
+ * "sent, account unknown" rather than guessing by position — the platform list
+ * is human-editable, so position is not evidence.
+ */
+export function parsePostTargets(raw: string | null | undefined): PostTarget[] {
+	if (!raw) return [];
+	return raw
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean)
+		.map((entry) => {
+			// Split on the FIRST colon, and only when the prefix actually looks like
+			// a platform token rather than a URI scheme. `https` passes a plain
+			// lowercase-word test, so the discriminator is the `//` that follows a
+			// scheme — a Blotato id is a uuid and never starts with one.
+			const at = entry.indexOf(":");
+			if (at <= 0) return { platform: null, id: entry };
+			const platform = entry.slice(0, at).trim().toLowerCase();
+			const id = entry.slice(at + 1).trim();
+			if (!id || id.startsWith("//") || !/^[a-z][a-z0-9_-]*$/.test(platform))
+				return { platform: null, id: entry };
+			return { platform, id };
+		});
+}
+
+/** Serialize post targets back to the frontmatter value. */
+export function formatPostTargets(targets: PostTarget[]): string {
+	return targets
+		.map((t) => (t.platform ? `${t.platform}:${t.id}` : t.id))
+		.join(",");
+}
+
+/** Host fragment -> platform. Only what the pipeline actually publishes to. */
+const URL_PLATFORMS: [RegExp, string][] = [
+	[/(^|\.)facebook\.com$/, "facebook"],
+	[/(^|\.)instagram\.com$/, "instagram"],
+	[/(^|\.)threads\.(net|com)$/, "threads"],
+	[/(^|\.)pinterest\.(com|[a-z.]+)$/, "pinterest"],
+	[/(^|\.)tiktok\.com$/, "tiktok"],
+	[/(^|\.)youtube\.com$/, "youtube"],
+	[/(^|\.)youtu\.be$/, "youtube"],
+	[/(^|\.)(x|twitter)\.com$/, "x"],
+];
+
+/**
+ * Which platform a live post URL belongs to.
+ *
+ * `published_urls` is a flat list and always has been. Rather than change its
+ * format and migrate every published note, read the platform back out of the
+ * URL — which genuinely encodes it — so attribution works retroactively on
+ * notes written long before ids carried a platform.
+ *
+ * Unrecognised host returns null; the caller shows the URL unattributed rather
+ * than guessing.
+ */
+export function platformFromUrl(url: string): string | null {
+	let host: string;
+	try {
+		host = new URL(url).hostname.toLowerCase();
+	} catch {
+		return null;
+	}
+	return URL_PLATFORMS.find(([re]) => re.test(host))?.[1] ?? null;
+}
+
 export interface QueueNote {
 	file: string;
 	/** Lower-cased and trimmed. `pending` when absent — never `approved`. */
@@ -114,6 +195,11 @@ export interface QueueNote {
 	schedulingStarted: string | null;
 	/** Blotato postSubmissionIds a scheduled note booked — polled to confirm publish. */
 	postIds: string[];
+	/** The same ids, each with the platform it was sent to. THE field that makes a
+	 *  partial send legible: without it `blotato_post_ids` is a bare list and
+	 *  nothing downstream can say which accounts are already live. Legacy notes
+	 *  written before the format changed carry `platform: null`. */
+	postTargets: PostTarget[];
 	/** The verbatim copy to publish, lifted from `## Final copy (verbatim)`. */
 	copy: string | null;
 	/** The note's declared `type:` — some types are human deliverables, not posts. */
@@ -329,6 +415,8 @@ export function readNote(file: string, raw: string): QueueNote {
 					? false
 					: null;
 
+	const postTargets = parsePostTargets(pick("blotato_post_ids"));
+
 	return {
 		file,
 		// Absent status means "not approved". Defaulting the other way would let a
@@ -342,10 +430,8 @@ export function readNote(file: string, raw: string): QueueNote {
 		boardId: pick("boardId") ?? pick("board_id") ?? null,
 		scheduledTime: pick("scheduled_time") ?? null,
 		schedulingStarted: pick("scheduling_started") ?? null,
-		postIds: (pick("blotato_post_ids") ?? "")
-			.split(",")
-			.map((s) => s.trim())
-			.filter(Boolean),
+		postIds: postTargets.map((t) => t.id),
+		postTargets,
 		copy: extractCopy(raw),
 		type: (pick("type") ?? null)?.toLowerCase() ?? null,
 	};
@@ -443,78 +529,111 @@ export function classify(
 		};
 	}
 
-	const mediaUrls = note.media ? [note.media] : [];
 	const posts: PlannedPost[] = [];
 
 	for (const platform of note.platforms) {
-		// A platform explicitly disabled for API posting (e.g. a too-new account) blocks
-		// the WHOLE note here, before any send — so it can never leave the earlier
-		// platforms half-shipped. Fix by removing that platform from the note.
-		const unavailable = targetDefaults.unavailable?.[platform];
-		if (unavailable) {
-			return { kind: "blocked", reason: "platform-unavailable", detail: unavailable };
-		}
+		const t = checkTarget(note, platform, connected, targetDefaults);
+		// One bad platform blocks the WHOLE note, before any send — so it can never
+		// leave the earlier platforms half-shipped. Fix by removing that platform
+		// from the note, or by fixing what it names.
+		if (!t.ok) return { kind: "blocked", reason: t.reason, detail: t.detail };
+		posts.push(t.post);
+	}
 
-		// Report, don't fail: the note stays `approved` and untouched, so fixing the
-		// gap and re-running ships it with no second approval.
-		const account = connected.get(platform);
-		if (!account) {
-			return {
-				kind: "blocked",
-				reason: "no-connected-account",
-				detail: `no ${platform} account connected to Blotato`,
-			};
-		}
-		if (MEDIA_REQUIRED.has(platform) && mediaUrls.length === 0) {
-			return {
-				kind: "blocked",
-				reason: "no-media",
-				detail: `${platform} requires a media URL`,
-			};
-		}
+	return { kind: "shippable", posts };
+}
 
-		// Length is checked for EVERY target before any of them are sent, so an
-		// over-long note fails as a whole rather than publishing to the platforms
-		// with roomier caps and then 422ing on the tight one. `detail` carries the
-		// overage because "too long" without a number is not actionable.
-		const cap = CHAR_LIMITS[platform];
-		if (cap !== undefined && note.copy.length > cap) {
-			return {
-				kind: "blocked",
-				reason: "copy-too-long",
-				detail: `${platform} allows ${cap} characters — this copy is ${note.copy.length}, ${note.copy.length - cap} over`,
-			};
-		}
-		// Facebook page target: the note's own pageId wins, then the injected default
-		// (Blotato's account listing doesn't carry it), then whatever the account
-		// happens to expose.
-		const pageId =
-			note.pageId ??
-			(platform === "facebook" ? targetDefaults.facebookPageId : undefined) ??
-			(account.pageId ? String(account.pageId) : undefined);
-		if (PAGE_ID_REQUIRED.has(platform) && !pageId) {
-			return {
-				kind: "blocked",
-				reason: "no-page-id",
-				detail: `${platform} requires a pageId (set 'pageId:' in the note)`,
-			};
-		}
+/** One platform's verdict on a note. */
+export type TargetCheck =
+	| { platform: string; ok: true; post: PlannedPost }
+	| { platform: string; ok: false; reason: BlockedReason; detail: string };
 
-		// Pinterest board target: a pin has to land on a board. Note override, then the
-		// injected default.
-		const boardId =
-			platform === "pinterest"
-				? (note.boardId ?? targetDefaults.pinterestBoardId)
-				: undefined;
-		if (BOARD_ID_REQUIRED.has(platform) && !boardId) {
-			return {
-				kind: "blocked",
-				reason: "no-board-id",
-				detail: `${platform} requires a boardId (set 'boardId:' in the note)`,
-			};
-		}
+/**
+ * Can this ONE platform take this note?
+ *
+ * Extracted out of classify's loop, which is still its only caller inside the
+ * gate — so an approval UI can show a per-account verdict computed by the exact
+ * function that decides whether the send happens, rather than a second opinion
+ * that can drift from it.
+ *
+ * That distinction is not academic. On 2026-08-08 an approved note read
+ * "Facebook · Instagram · Threads" in the cockpit right up to the moment the
+ * drain published to Facebook and Instagram and 422'd on Threads at 673/500
+ * characters. Nothing on the card had said Threads couldn't take it. The whole
+ * note is still refused as a unit — this only makes the refusal legible per
+ * account, before anyone presses Approve.
+ */
+export function checkTarget(
+	note: QueueNote,
+	platform: string,
+	connected: Map<string, BlotatoAccount>,
+	targetDefaults: TargetDefaults = {},
+): TargetCheck {
+	const bad = (reason: BlockedReason, detail: string): TargetCheck => ({
+		platform,
+		ok: false,
+		reason,
+		detail,
+	});
 
-		posts.push({
+	if (!note.copy) return bad("no-copy", "no '## Final copy (verbatim)' section");
+
+	const mediaUrls = note.media ? [note.media] : [];
+
+	// A platform explicitly disabled for API posting (e.g. a too-new account).
+	const unavailable = targetDefaults.unavailable?.[platform];
+	if (unavailable) return bad("platform-unavailable", unavailable);
+
+	// Report, don't fail: the note stays `approved` and untouched, so fixing the
+	// gap and re-running ships it with no second approval.
+	const account = connected.get(platform);
+	if (!account)
+		return bad(
+			"no-connected-account",
+			`no ${platform} account connected to Blotato`,
+		);
+
+	if (MEDIA_REQUIRED.has(platform) && mediaUrls.length === 0)
+		return bad("no-media", `${platform} requires a media URL`);
+
+	// `detail` carries the overage because "too long" without a number is not
+	// actionable — you cannot trim to a target you were never told.
+	const cap = CHAR_LIMITS[platform];
+	if (cap !== undefined && note.copy.length > cap)
+		return bad(
+			"copy-too-long",
+			`${platform} allows ${cap} characters — this copy is ${note.copy.length}, ${note.copy.length - cap} over`,
+		);
+
+	// Facebook page target: the note's own pageId wins, then the injected default
+	// (Blotato's account listing doesn't carry it), then whatever the account
+	// happens to expose.
+	const pageId =
+		note.pageId ??
+		(platform === "facebook" ? targetDefaults.facebookPageId : undefined) ??
+		(account.pageId ? String(account.pageId) : undefined);
+	if (PAGE_ID_REQUIRED.has(platform) && !pageId)
+		return bad(
+			"no-page-id",
+			`${platform} requires a pageId (set 'pageId:' in the note)`,
+		);
+
+	// Pinterest board target: a pin has to land on a board. Note override, then the
+	// injected default.
+	const boardId =
+		platform === "pinterest"
+			? (note.boardId ?? targetDefaults.pinterestBoardId)
+			: undefined;
+	if (BOARD_ID_REQUIRED.has(platform) && !boardId)
+		return bad(
+			"no-board-id",
+			`${platform} requires a boardId (set 'boardId:' in the note)`,
+		);
+
+	return {
+		platform,
+		ok: true,
+		post: {
 			platform,
 			// The note's explicit accountId pins the exact account a human reviewed —
 			// but ONLY on a single-platform note. An `accountId:` is one id, and a
@@ -539,10 +658,8 @@ export function classify(
 			...(boardId ? { boardId } : {}),
 			text: note.copy,
 			mediaUrls,
-		});
-	}
-
-	return { kind: "shippable", posts };
+		},
+	};
 }
 
 /** When to schedule. An explicit ISO `scheduled_time:` in the note wins; otherwise

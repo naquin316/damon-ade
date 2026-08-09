@@ -3,8 +3,10 @@ import {
 	ageDaysFromFile,
 	classify,
 	CONFIRM_DEADLINE_MS,
+	formatPostTargets,
 	isWaitingOnApproval,
 	type PlannedPost,
+	type PostTarget,
 	readNote,
 	resolveScheduledTime,
 	type TargetDefaults,
@@ -196,13 +198,17 @@ export async function drain(
 						}),
 					);
 
-					const ids: string[] = [];
+					// Attributed as they are sent, so a send that dies part-way still
+					// leaves an unambiguous record of WHICH accounts went out. A bare
+					// id list cannot say that, and the human resolving the partial is
+					// the one person who most needs to know.
+					const sent: PostTarget[] = [];
 					try {
 						// Sequential on purpose: a multi-target note (instagram + facebook)
 						// that fails on the 2nd platform must not have raced the 1st.
 						for (const p of c.posts) {
 							const { id } = await deps.send(p, scheduledTime);
-							ids.push(id);
+							sent.push({ platform: p.platform, id });
 						}
 					} catch (sendError) {
 						// Partial send is exactly the ambiguous state a human must resolve:
@@ -211,15 +217,22 @@ export async function drain(
 							sendError instanceof Error
 								? sendError.message
 								: String(sendError);
+						// Name the accounts that DID go out, not just the count. "2/3"
+						// tells a human something happened; "facebook, instagram" tells
+						// them what to go look at, and which platform to drop before
+						// re-approving so the retry can't double-post.
+						const live = sent.map((t) => t.platform).join(", ");
 						deps.write(
 							path,
 							withStatus(raw, "needs-review", {
 								needs_review_reason:
-									`drain-queue: send failed after ${ids.length}/${c.posts.length} post(s) — check Blotato before re-approving. ${msg}`.replace(
+									`drain-queue: send failed after ${sent.length}/${c.posts.length} post(s)${live ? ` — ${live} already sent, do NOT re-send ${live}` : ""} — check Blotato before re-approving. ${msg}`.replace(
 										/\s+/g,
 										" ",
 									),
-								...(ids.length ? { blotato_post_ids: ids.join(",") } : {}),
+								...(sent.length
+									? { blotato_post_ids: formatPostTargets(sent) }
+									: {}),
 							}),
 						);
 						report.needsReview.push({ file: path, since: null });
@@ -230,11 +243,15 @@ export async function drain(
 					deps.write(
 						path,
 						withStatus(raw, "scheduled", {
-							blotato_post_ids: ids.join(","),
+							blotato_post_ids: formatPostTargets(sent),
 							scheduled_time: scheduledTime,
 						}),
 					);
-					report.shipped.push({ file: path, ids, scheduledTime });
+					report.shipped.push({
+						file: path,
+						ids: sent.map((t) => t.id),
+						scheduledTime,
+					});
 					break;
 				}
 

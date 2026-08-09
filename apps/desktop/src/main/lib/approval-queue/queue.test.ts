@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { BlotatoAccount } from "./blotato";
 import {
+	checkTarget,
 	classify,
 	extractCopy,
+	formatPostTargets,
 	parseCrosspostable,
 	parsePlatforms,
+	parsePostTargets,
+	platformFromUrl,
 	type QueueNote,
 	readNote,
 	replaceCopySection,
@@ -818,6 +822,7 @@ describe("classify — accountId pinning across platforms (the 2026-08-08 500)",
 			scheduledTime: null,
 			schedulingStarted: null,
 			postIds: [],
+			postTargets: [],
 			copy: "hello",
 			type: null,
 			...over,
@@ -864,5 +869,146 @@ describe("classify — accountId pinning across platforms (the 2026-08-08 500)",
 		expect(c.kind).toBe("shippable");
 		if (c.kind !== "shippable") return;
 		expect(c.posts[0]?.accountId).toBe("6789");
+	});
+});
+
+/* Attribution — which account a booked post actually went to.
+ *
+ * Born from the 2026-08-08 ammo-box post: it published to Facebook and
+ * Instagram and 422'd on Threads, and the note recorded only
+ * `blotato_post_ids: <uuid>,<uuid>`. Nothing on disk said which two accounts
+ * were live, so every screen showed all three platforms as if the post were
+ * still pending, and re-approving would have double-posted two live accounts.
+ */
+describe("parsePostTargets", () => {
+	test("reads the attributed form", () => {
+		expect(parsePostTargets("facebook:abc,instagram:def")).toEqual([
+			{ platform: "facebook", id: "abc" },
+			{ platform: "instagram", id: "def" },
+		]);
+	});
+
+	test("legacy bare ids parse with an UNKNOWN platform, not a guessed one", () => {
+		// Position is not evidence — the platform list is human-editable — so a
+		// bare id must read as "sent, account unknown" rather than being paired
+		// with note.platforms[i].
+		expect(parsePostTargets("abc,def")).toEqual([
+			{ platform: null, id: "abc" },
+			{ platform: null, id: "def" },
+		]);
+	});
+
+	test("a mixed list (a note re-sent after the format changed) parses both", () => {
+		expect(parsePostTargets("abc,threads:def")).toEqual([
+			{ platform: null, id: "abc" },
+			{ platform: "threads", id: "def" },
+		]);
+	});
+
+	test("a URL-shaped entry does not parse its scheme as a platform", () => {
+		expect(parsePostTargets("https://x/y")).toEqual([
+			{ platform: null, id: "https://x/y" },
+		]);
+	});
+
+	test("empty / whitespace yields nothing", () => {
+		expect(parsePostTargets("")).toEqual([]);
+		expect(parsePostTargets(null)).toEqual([]);
+		expect(parsePostTargets(" , ")).toEqual([]);
+	});
+
+	test("round-trips through formatPostTargets", () => {
+		const s = "facebook:abc,instagram:def";
+		expect(formatPostTargets(parsePostTargets(s))).toBe(s);
+	});
+
+	test("readNote exposes both the flat ids and the attributed targets", () => {
+		const n = readNote(
+			"/q/a.md",
+			"---\nstatus: scheduled\nblotato_post_ids: facebook:abc,instagram:def\n---\n",
+		);
+		expect(n.postIds).toEqual(["abc", "def"]);
+		expect(n.postTargets.map((t) => t.platform)).toEqual([
+			"facebook",
+			"instagram",
+		]);
+	});
+});
+
+describe("platformFromUrl — attribute a live post retroactively", () => {
+	test("the two real URLs from the 2026-08-08 half-publish", () => {
+		expect(
+			platformFromUrl("https://facebook.com/100587251684586_1567300562075113"),
+		).toBe("facebook");
+		expect(platformFromUrl("https://www.instagram.com/p/Dby_l2pmOON/")).toBe(
+			"instagram",
+		);
+	});
+	test("covers the rest of the connected set", () => {
+		expect(platformFromUrl("https://www.threads.net/@x/post/1")).toBe("threads");
+		expect(platformFromUrl("https://www.tiktok.com/@x/video/1")).toBe("tiktok");
+		expect(platformFromUrl("https://www.pinterest.com/pin/1/")).toBe("pinterest");
+		expect(platformFromUrl("https://youtu.be/abc")).toBe("youtube");
+		expect(platformFromUrl("https://x.com/x/status/1")).toBe("x");
+	});
+	test("a lookalike host does not match", () => {
+		expect(platformFromUrl("https://notfacebook.com/x")).toBeNull();
+		expect(platformFromUrl("https://facebook.com.evil.test/x")).toBeNull();
+	});
+	test("junk returns null rather than throwing", () => {
+		expect(platformFromUrl("not a url")).toBeNull();
+		expect(platformFromUrl("")).toBeNull();
+	});
+});
+
+describe("checkTarget — the per-account verdict the UI shows", () => {
+	const TD = { facebookPageId: "100587251684586" };
+	const mk = (over: Partial<QueueNote> = {}): QueueNote => ({
+		file: "/q/a.md",
+		status: "pending",
+		approved: null,
+		platforms: ["instagram"],
+		media: "https://x/y.png",
+		accountId: null,
+		pageId: null,
+		boardId: null,
+		scheduledTime: null,
+		schedulingStarted: null,
+		postIds: [],
+		postTargets: [],
+		copy: "hello",
+		type: null,
+		...over,
+	});
+
+	test("agrees with classify: the platform that blocks the note is named", () => {
+		// 673 chars is the real ammo-box length; threads caps at 500.
+		const n = mk({
+			platforms: ["facebook", "instagram", "threads"],
+			copy: "x".repeat(673),
+		});
+
+		const per = n.platforms.map((p) => checkTarget(n, p, CONNECTED, TD));
+		expect(per.filter((t) => t.ok).map((t) => t.platform)).toEqual([
+			"facebook",
+			"instagram",
+		]);
+		const bad = per.find((t) => !t.ok);
+		expect(bad?.platform).toBe("threads");
+		if (bad?.ok === false) {
+			expect(bad.reason).toBe("copy-too-long");
+			expect(bad.detail).toContain("173 over");
+		}
+
+		// And the whole note is still refused as a unit — per-account visibility
+		// must not become per-account shipping.
+		const c = classify({ ...n, status: "approved", approved: true }, NOW, CONNECTED, TD);
+		expect(c.kind).toBe("blocked");
+	});
+
+	test("an unconnected platform is named, not the whole note vaguely", () => {
+		const t = checkTarget(mk({ platforms: ["linkedin"] }), "linkedin", CONNECTED, TD);
+		expect(t.ok).toBe(false);
+		if (t.ok === false) expect(t.reason).toBe("no-connected-account");
 	});
 });

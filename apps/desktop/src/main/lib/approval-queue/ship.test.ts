@@ -142,7 +142,9 @@ describe("drain — the double-post invariant", () => {
 		});
 		await drain(h.deps, { ship: true });
 		expect(h.fs["/q/a.md"]).toContain("status: scheduled");
-		expect(h.fs["/q/a.md"]).toContain("blotato_post_ids: post-1");
+		// Ids carry the account they went to, so a reader never has to infer it
+		// from position in the platform list (which a human can reorder).
+		expect(h.fs["/q/a.md"]).toContain("blotato_post_ids: threads:post-1");
 	});
 });
 
@@ -176,7 +178,12 @@ describe("drain — send failures escalate, never retry", () => {
 
 		expect(h.sent).toHaveLength(1); // instagram went out
 		expect(h.fs["/q/a.md"]).toContain("status: needs-review");
-		expect(h.fs["/q/a.md"]).toContain("blotato_post_ids: post-1");
+		// The half-published case is exactly where attribution earns its keep: the
+		// human resolving this has to know it was INSTAGRAM that went live, or the
+		// retry double-posts it.
+		expect(h.fs["/q/a.md"]).toContain("blotato_post_ids: instagram:post-1");
+		expect(h.fs["/q/a.md"]).toContain("instagram already sent");
+		expect(h.fs["/q/a.md"]).toContain("do NOT re-send instagram");
 		expect(r.shipped).toEqual([]);
 	});
 
