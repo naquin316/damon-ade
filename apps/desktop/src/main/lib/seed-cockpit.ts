@@ -43,7 +43,7 @@ function codeRoot(): string {
 function vaultRoot(): string {
 	return (
 		process.env.ADE_SEED_VAULT ||
-		join(homedir(), "Library/Mobile Documents/iCloud~md~obsidian/Documents/RLOS_2026")
+		join(homedir(), "Vaults/RLOS_2026")
 	);
 }
 

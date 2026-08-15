@@ -34,5 +34,5 @@ SM Manager and Repurposer work from.
 
 ## Verification
 Write the plan to:
-`/Users/ryannaquin/Library/Mobile Documents/iCloud~md~obsidian/Documents/RLOS_2026/2. Areas/Social Media/Content Calendar/<YYYY-MM-DD>-week.md`
+`/Users/ryannaquin/Vaults/RLOS_2026/2. Areas/Social Media/Content Calendar/<YYYY-MM-DD>-week.md`
 with one row per planned post (day, slot time, brand, platform, angle, source, write-vs-repurpose).

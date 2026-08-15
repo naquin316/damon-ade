@@ -24,7 +24,7 @@ Claude Code skill Ryan already built and wired on 2026-07-07:
 ## Vault state (this agent's cwd)
 
 Direct-mode agent — cwd IS the vault
-(`~/Library/Mobile Documents/iCloud~md~obsidian/Documents/RLOS_2026/`):
+(`~/Vaults/RLOS_2026/`):
 
 - `Clippings/youtube/` — the clipping notes being triaged; frontmatter
   (`triage`, `pitch_status`, `build_status`) is the state machine.

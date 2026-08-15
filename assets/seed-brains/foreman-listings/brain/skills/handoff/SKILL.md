@@ -20,7 +20,7 @@ touches MEMORY.md; never writes into any repo/worktree.
 - RECEIVE: at session start, check whether another agent handed you work.
 
 ## Convention
-- `<VAULT>` = `/Users/ryannaquin/Library/Mobile Documents/iCloud~md~obsidian/Documents/RLOS_2026`
+- `<VAULT>` = `/Users/ryannaquin/Vaults/RLOS_2026`
 - Inbox: `<VAULT>/2. Areas/Handoffs/<recipient-slug>/`; processed → its `done/` subdir.
 - `<recipient-slug>` = the recipient's seed-brain slug (e.g. `sm-manager`,
   `shopify-store-cockpit`).

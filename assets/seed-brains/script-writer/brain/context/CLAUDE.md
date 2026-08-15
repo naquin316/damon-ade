@@ -44,7 +44,7 @@ Ryan for example scripts instead.
 This is a `direct`-mode agent — no MCP server. Its working directory IS the
 Obsidian vault:
 ```
-~/Library/Mobile Documents/iCloud~md~obsidian/Documents/RLOS_2026
+~/Vaults/RLOS_2026
 ```
 Read/write notes there directly (Read/Write/Edit tools) — that covers the
 manifest's one curated tool, `vault`. To *search* the vault (never grep/find

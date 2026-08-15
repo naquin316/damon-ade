@@ -21,7 +21,7 @@ There is no autonomous-publish path. Every post goes through this gate first:
    isn't, send it back to post-writer/post-grader before doing anything else.
 2. **Write the post to the approval queue** as a note:
    - Folder: `<VAULT>/2. Areas/Social Media/Approval Queue/` where `<VAULT>` is
-     `/Users/ryannaquin/Library/Mobile Documents/iCloud~md~obsidian/Documents/RLOS_2026`.
+     `/Users/ryannaquin/Vaults/RLOS_2026`.
      Create the folder if it doesn't exist.
    - File: `<YYYY-MM-DD>-<short-slug>.md`. Include: brand, target platform(s), the
      final copy verbatim, the grade + rubric notes, intended schedule time, and
